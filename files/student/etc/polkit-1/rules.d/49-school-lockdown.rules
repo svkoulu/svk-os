@@ -1,0 +1,21 @@
+// Kiosk polkit lockdown. Deny the `student` account any privileged action:
+// no package installs, no mount/format of disks, no changing system settings,
+// no color-manager prompts, etc. Staff/admin accounts are unaffected because
+// they authenticate as a different user over Tailscale/SSH or on staff images.
+//
+// polkit evaluates rules files in lexical order; 49- keeps us ahead of most
+// distro defaults while leaving room (50+) for later overrides.
+
+polkit.addRule(function(action, subject) {
+    if (subject.user == "student") {
+        // Blanket-deny the sensitive action families a kiosk should never allow.
+        if (action.id.indexOf("org.freedesktop.packagekit.")   == 0 ||
+            action.id.indexOf("org.freedesktop.udisks2.")       == 0 ||
+            action.id.indexOf("org.freedesktop.NetworkManager.settings.") == 0 ||
+            action.id.indexOf("org.freedesktop.systemd1.")       == 0 ||
+            action.id.indexOf("org.rpm-ostree.")                 == 0 ||
+            action.id.indexOf("org.freedesktop.hostname1.")      == 0) {
+            return polkit.Result.NO;
+        }
+    }
+});

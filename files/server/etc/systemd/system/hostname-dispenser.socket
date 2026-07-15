@@ -1,0 +1,14 @@
+# Socket-activated hostname dispenser. Enabled in build.server.sh. Accept=yes
+# spawns one hostname-dispenser@.service instance per connection, so there is no
+# long-running daemon to babysit.
+[Unit]
+Description=Fleet hostname dispenser socket
+
+[Socket]
+ListenStream=8765
+Accept=yes
+# Only reachable over the tailnet in practice; still, keep it to the machine's
+# interfaces. Tighten with a firewall/Tailscale ACL if you want belt-and-braces.
+
+[Install]
+WantedBy=sockets.target

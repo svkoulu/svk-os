@@ -1,0 +1,42 @@
+# Example hostname pool. On first run the dispenser copies this to
+# /var/lib/school/hostname-pool (on the data volume) if that file doesn't exist;
+# edit the REAL pool there, not this example — the example is baked into the
+# image and reset on every update.
+#
+# One hostname label per line. '#' comments and blank lines are ignored. Labels
+# must be valid DNS labels (lowercase letters, digits, hyphens) so they resolve
+# cleanly under Tailscale MagicDNS. Give yourself more names than machines.
+#
+# The real pool will be defined later; this is just a working placeholder.
+
+# --- student kiosks (~19 machines, give room to grow) ---
+svk-student-01
+svk-student-02
+svk-student-03
+svk-student-04
+svk-student-05
+svk-student-06
+svk-student-07
+svk-student-08
+svk-student-09
+svk-student-10
+svk-student-11
+svk-student-12
+svk-student-13
+svk-student-14
+svk-student-15
+svk-student-16
+svk-student-17
+svk-student-18
+svk-student-19
+svk-student-20
+svk-student-21
+svk-student-22
+
+# --- staff laptops ---
+svk-staff-01
+svk-staff-02
+svk-staff-03
+svk-staff-04
+svk-staff-05
+svk-staff-06

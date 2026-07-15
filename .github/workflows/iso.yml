@@ -1,0 +1,75 @@
+# Builds installer ISOs for the two desktop images, on demand.
+#
+# Separate from build.yml on purpose: ISOs are only needed when provisioning new
+# hardware, are slow to build, and produce large artifacts. Run it by hand from
+# the Actions tab (workflow_dispatch). Existing machines never need this — they
+# `bootc switch` / auto-update from the registry.
+name: iso
+
+on:
+  workflow_dispatch:
+    inputs:
+      image:
+        description: Which ISO(s) to build.
+        type: choice
+        default: both
+        options: [both, school-student, school-staff]
+
+env:
+  REGISTRY: ghcr.io
+  NAMESPACE: <<GHCR_NAMESPACE>>
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  iso:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [school-student, school-staff]
+    steps:
+      - name: Should this image build?
+        id: gate
+        run: |
+          want='${{ inputs.image }}'
+          if [ "$want" = "both" ] || [ "$want" = "${{ matrix.image }}" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Login to GHCR
+        if: steps.gate.outputs.run == 'true'
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | podman login "${REGISTRY}" \
+            -u "${{ github.actor }}" --password-stdin
+
+      - name: Build ISO with bootc-image-builder
+        if: steps.gate.outputs.run == 'true'
+        run: |
+          set -euo pipefail
+          IMG="${REGISTRY}/${NAMESPACE}/${{ matrix.image }}:latest"
+          mkdir -p output
+          # bootc-image-builder (BIB) turns a bootc image into installer media.
+          # It reads the image from the host's container storage, so pull first.
+          sudo podman pull "$IMG"
+          sudo podman run --rm --privileged \
+            --security-opt label=type:unconfined_t \
+            -v "$(pwd)/output":/output \
+            -v /var/lib/containers/storage:/var/lib/containers/storage \
+            quay.io/centos-bootc/bootc-image-builder:latest \
+            --type iso \
+            --local \
+            "$IMG"
+
+      - name: Upload ISO artifact
+        if: steps.gate.outputs.run == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.image }}-iso
+          # BIB writes the ISO under output/bootiso/install.iso
+          path: output/bootiso/*.iso
+          if-no-files-found: error

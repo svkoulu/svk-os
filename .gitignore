@@ -1,0 +1,10 @@
+# Never commit the cosign PRIVATE key (only cosign.pub belongs in git).
+cosign.key
+*.key
+
+# Compiled Ignition and any real Tailscale keys.
+*.ign
+
+# Local ISO / build output.
+output/
+*.iso

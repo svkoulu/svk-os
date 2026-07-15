@@ -1,0 +1,26 @@
+# school-server — the one server. Independent branch of the hierarchy: built
+# FROM uCore, NOT from school-base (build.yml: build-server `needs: []`).
+#
+# Its jobs:
+#   1. Run a pull-through registry cache for ghcr.io (Podman quadlet) so the 19
+#      student laptops don't each drag multi-GB layers over the school network.
+#   2. Hand out fleet hostnames from a pool (socket-activated dispenser).
+#   3. Cockpit for remote admin (already in uCore; we just enable it).
+#
+# NOTE: the server deliberately does NOT get the ghcr.io->cache mirror drop-in.
+# It must reach the *real* ghcr.io to populate the cache.
+FROM ghcr.io/ublue-os/ucore:stable
+
+# Server config tree:
+#   - /etc/containers/systemd/registry.container -> pull-through cache quadlet
+#   - /usr/bin/hostname-dispenser.sh       -> pool dispenser
+#   - /etc/systemd/system/hostname-dispenser.*   -> socket + template service
+#   - /usr/share/school/hostname-pool.example    -> example pool (real one lives
+#                                                   on the data volume)
+#   - /etc/school/tailscale-tag                  -> tag:svk-admin
+COPY files/server/ /
+
+COPY build.server.sh /tmp/build.sh
+RUN bash /tmp/build.sh && rm -f /tmp/build.sh
+
+RUN bootc container lint

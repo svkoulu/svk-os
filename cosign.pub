@@ -1,0 +1,12 @@
+-----BEGIN PUBLIC KEY-----
+<<REPLACE THIS FILE WITH YOUR REAL cosign.pub>>
+
+Generate the keypair locally (see README "cosign setup"):
+
+    cosign generate-key-pair
+
+Commit the resulting cosign.pub OVER this file, and add the matching
+cosign.key contents as the COSIGN_PRIVATE_KEY repo secret. NEVER commit
+cosign.key. This placeholder intentionally is not a valid key so a
+misconfigured pipeline fails loudly instead of silently trusting nothing.
+-----END PUBLIC KEY-----

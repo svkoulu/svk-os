@@ -1,0 +1,15 @@
+# school-staff — normal desktop for the handful of staff laptops.
+#
+# Built FROM school-base (build.yml: build-staff `needs: build-base`). No kiosk
+# lockdown, no skel reset, normal login. Staff install their own apps as
+# Flatpak `--user` (~/.local/share/flatpak survives image updates).
+FROM ghcr.io/<<GHCR_NAMESPACE>>/school-base:latest
+
+# Staff config tree:
+#   - /etc/school/tailscale-tag  -> tag:svk-staff
+COPY files/staff/ /
+
+COPY build.staff.sh /tmp/build.sh
+RUN bash /tmp/build.sh && rm -f /tmp/build.sh
+
+RUN bootc container lint

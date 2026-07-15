@@ -1,0 +1,89 @@
+# server.bu — Butane config for the uCore server's FIRST install.
+#
+# uCore/Fedora CoreOS provision with Ignition, NOT with the desktop images'
+# model. You author human-friendly Butane (this file) and compile it to Ignition
+# JSON, which the installer consumes exactly once at first boot:
+#
+#   butane --pretty --strict server.bu > server.ign
+#   # then boot the CoreOS/uCore installer and point it at server.ign, e.g.
+#   coreos-installer install /dev/sda --ignition-file server.ign
+#
+# This is minimal on purpose: create an admin user, mount the cache data volume,
+# enroll Tailscale, and rebase onto our signed school-server image. After that
+# the box updates like any other bootc machine (bootc switch / auto-update).
+#
+# NOTE: Ignition is supplied at install time, so a Tailscale pre-auth key placed
+# here is acceptable (it never enters a published image). Still keep server.ign
+# out of git. Never bake the key into the school-server IMAGE.
+
+variant: fcos
+version: 1.5.0
+
+passwd:
+  users:
+    - name: admin
+      groups:
+        - wheel
+        - sudo
+      ssh_authorized_keys:
+        - "<<ADMIN_SSH_PUBLIC_KEY>>"
+
+storage:
+  directories:
+    # Cache storage target on the 1TB NVMe. If the NVMe is a separate disk,
+    # replace this with a `filesystems:` + mount unit for that device and mount
+    # it at /var/mnt/registry-cache instead.
+    - path: /var/mnt/registry-cache
+      mode: 0755
+
+  files:
+    # Tailscale enrollment for the server (tag:admin). Key is a placeholder;
+    # generate a one-off, tagged, ephemeral-optional pre-auth key in the
+    # Tailscale admin console and drop it in before compiling. Delete after use.
+    - path: /etc/school/tailscale-authkey
+      mode: 0600
+      contents:
+        inline: "<<TAILSCALE_AUTHKEY>>"
+
+systemd:
+  units:
+    # One-shot: rebase this fresh uCore install onto our signed school-server
+    # image, then reboot into it. `bootc switch` pins to :latest; the signature
+    # policy baked into the image takes over from the next update onward.
+    - name: school-server-rebase.service
+      enabled: true
+      contents: |
+        [Unit]
+        Description=Rebase onto ghcr.io school-server image (first boot)
+        After=network-online.target
+        Wants=network-online.target
+        ConditionPathExists=!/var/lib/school/.rebased
+        [Service]
+        Type=oneshot
+        RemainAfterExit=yes
+        ExecStart=/usr/bin/bootc switch --enforce-container-sigpolicy ghcr.io/<<GHCR_NAMESPACE>>/school-server:latest
+        ExecStartPost=/usr/bin/mkdir -p /var/lib/school
+        ExecStartPost=/usr/bin/touch /var/lib/school/.rebased
+        ExecStartPost=/usr/bin/systemctl reboot
+        [Install]
+        WantedBy=multi-user.target
+
+    # Bring Tailscale up with the key + admin tag on first boot.
+    - name: school-tailscale-up.service
+      enabled: true
+      contents: |
+        [Unit]
+        Description=Enroll server in Tailscale (tag:avk-admin)
+        After=tailscaled.service network-online.target
+        Wants=network-online.target
+        Requires=tailscaled.service
+        ConditionPathExists=/etc/school/tailscale-authkey
+        ConditionPathExists=!/var/lib/school/.tailscale-up
+        [Service]
+        Type=oneshot
+        RemainAfterExit=yes
+        ExecStart=/usr/bin/bash -c '/usr/bin/tailscale up --authkey "$(cat /etc/school/tailscale-authkey)" --advertise-tags "$(cat /etc/school/tailscale-tag)" --hostname svk-server'
+        ExecStartPost=/usr/bin/mkdir -p /var/lib/school
+        ExecStartPost=/usr/bin/touch /var/lib/school/.tailscale-up
+        [Install]
+        WantedBy=multi-user.target

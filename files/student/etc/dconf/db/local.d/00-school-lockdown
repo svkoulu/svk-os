@@ -1,0 +1,26 @@
+# Kiosk defaults, compiled into the binary `local` db by `dconf update` in
+# build.student.sh. These are DEFAULTS; the matching entries in
+# locks/00-school-locks make them unchangeable. Add/trim to taste.
+
+[org/gnome/desktop/lockdown]
+# No arbitrary command execution (Alt-F2), no printing/print-setup escape,
+# no switching users, no saving files to arbitrary locations.
+disable-command-line=true
+disable-user-switching=true
+disable-lock-screen=true
+disable-log-out=false
+
+[org/gnome/desktop/screensaver]
+lock-enabled=false
+
+[org/gnome/software]
+# Students don't install/update software; kiosk apps are baked in.
+allow-updates=false
+download-updates=false
+
+[org/gnome/desktop/notifications]
+show-in-lock-screen=false
+
+[org/gnome/desktop/media-handling]
+# Don't auto-run anything off inserted USB media.
+autorun-never=true
