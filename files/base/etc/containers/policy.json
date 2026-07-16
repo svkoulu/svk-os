@@ -6,14 +6,14 @@
     "same way). Our OWN namespace is pinned to require a cosign signature made",
     "with /etc/pki/containers/svk-cosign.pub. Tighten `default` to",
     "`reject` later if you want a fully closed fleet.",
-    "Edit fmorato to match cosign.pub's owner."
+    "Edit svkoulu to match cosign.pub's owner."
   ],
   "default": [
     { "type": "insecureAcceptAnything" }
   ],
   "transports": {
     "docker": {
-      "ghcr.io/fmorato": [
+      "ghcr.io/svkoulu": [
         {
           "type": "sigstoreSigned",
           "keyPath": "/etc/pki/containers/svk-cosign.pub",

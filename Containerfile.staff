@@ -3,7 +3,7 @@
 # Built FROM svk-base (build.yml: build-staff `needs: build-base`). No kiosk
 # lockdown, no skel reset, normal login. Staff install their own apps as
 # Flatpak `--user` (~/.local/share/flatpak survives image updates).
-FROM ghcr.io/fmorato/svk-base:latest
+FROM ghcr.io/svkoulu/svk-base:latest
 
 # Staff config tree:
 #   - /etc/svk/tailscale.conf  -> tag:svk-staff

@@ -63,7 +63,7 @@ grep -rn '<<' . --include=Containerfile.\* --include=\*.sh --include=\*.yml \
 
 | Placeholder | Meaning | Where |
 |---|---|---|
-| `<<GHCR_NAMESPACE>>` | GitHub user/org owning the images — **set to `fmorato`** | Containerfiles, workflows, `policy.json`, `registries.d`, `server.bu` |
+| `<<GHCR_NAMESPACE>>` | GitHub user/org owning the images — **set to `svkoulu`** | Containerfiles, workflows, `policy.json`, `registries.d`, `server.bu` |
 | `<<REGISTRY_CACHE_HOST>>` | Cache server host — **set to `svk-server.local`** (mDNS, so LAN-only students resolve it too) | `files/base/.../010-ghcr-mirror.conf`, hostname-claim script |
 | `<<ADMIN_SSH_PUBLIC_KEY>>` | Admin operator key — **filled**, baked into every device + `server.bu` | `files/base/etc/ssh/authorized_keys.d/admin`, `server.bu` |
 | `<<ADD ... HERE>>` | Optional package/flatpak/font lists | `build.*.sh` |
@@ -145,13 +145,13 @@ base, then rebase onto the target image:
 
 ```bash
 # student kiosk
-sudo bootc switch ghcr.io/fmorato/svk-student:latest
+sudo bootc switch ghcr.io/svkoulu/svk-student:latest
 
 # staff desktop
-sudo bootc switch ghcr.io/fmorato/svk-staff:latest
+sudo bootc switch ghcr.io/svkoulu/svk-staff:latest
 
 # server (usually done by server.bu at install; manual form:)
-sudo bootc switch ghcr.io/fmorato/svk-server:latest
+sudo bootc switch ghcr.io/svkoulu/svk-server:latest
 ```
 
 Thereafter the machine auto-updates from the same ref. Pin to a dated tag

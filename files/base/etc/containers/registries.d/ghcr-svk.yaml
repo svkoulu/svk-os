@@ -3,5 +3,5 @@
 # publishes them), rather than in a separate signature store. Required for the
 # sigstoreSigned rule in policy.json to actually find the signatures.
 docker:
-  ghcr.io/fmorato:
+  ghcr.io/svkoulu:
     use-sigstore-attachments: true

@@ -17,8 +17,8 @@ on:
 env:
   REGISTRY: ghcr.io
   # GitHub user/org that owns the images. Must match cosign.pub's owner and the
-  # fmorato placeholders in the Containerfiles / files tree.
-  NAMESPACE: fmorato
+  # svkoulu placeholders in the Containerfiles / files tree.
+  NAMESPACE: svkoulu
 
 # GITHUB_TOKEN needs to push packages. Keyed cosign signing needs no id-token.
 permissions:

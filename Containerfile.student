@@ -3,7 +3,7 @@
 # Built FROM the freshly-pushed svk-base (see build.yml: build-student
 # `needs: build-base`), so it inherits Tailscale, the print stack, the ghcr.io
 # mirror and the cosign policy, and only adds the kiosk lockdown on top.
-FROM ghcr.io/fmorato/svk-base:latest
+FROM ghcr.io/svkoulu/svk-base:latest
 
 # Kiosk config tree:
 #   - /etc/gdm/custom.conf            -> autologin to the `opilas` account

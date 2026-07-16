@@ -17,7 +17,7 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  NAMESPACE: fmorato
+  NAMESPACE: svkoulu
 
 permissions:
   contents: read

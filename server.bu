@@ -136,7 +136,7 @@ systemd:
         [Service]
         Type=oneshot
         RemainAfterExit=yes
-        ExecStart=/usr/bin/bootc switch --enforce-container-sigpolicy ghcr.io/fmorato/svk-server:latest
+        ExecStart=/usr/bin/bootc switch --enforce-container-sigpolicy ghcr.io/svkoulu/svk-server:latest
         ExecStartPost=/usr/bin/mkdir -p /var/lib/svk
         ExecStartPost=/usr/bin/touch /var/lib/svk/.rebased
         ExecStartPost=/usr/bin/systemctl reboot
