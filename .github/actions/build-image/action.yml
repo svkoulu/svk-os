@@ -74,5 +74,13 @@ runs:
       # Sign by digest: both tags resolve to the same digest, so one signature
       # covers :latest and :stable-DATE. Machines verify this against cosign.pub
       # baked into the image (files/base/.../policy.json).
+      #
+      # cosign needs its own registry credentials here: it uses go-containerregistry's
+      # keychain (~/.docker/config.json), which podman login never writes to (podman
+      # keeps its own auth.json), so without these flags the pull-to-sign is anonymous
+      # and GHCR returns UNAUTHORIZED.
       run: |
-        cosign sign --yes --key env://COSIGN_PRIVATE_KEY "${REPO}@${DIGEST}"
+        cosign sign --yes --key env://COSIGN_PRIVATE_KEY \
+          --registry-username "${{ inputs.username }}" \
+          --registry-password "${{ inputs.password }}" \
+          "${REPO}@${DIGEST}"

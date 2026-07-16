@@ -33,9 +33,9 @@ Find them all: `grep -rn '<<' . --include=Containerfile.\* --include=\*.sh \
 
 - [x] `cosign generate-key-pair` (press ENTER for an empty password = simplest).
 - [x] Commit the real `cosign.pub` over the placeholder at the repo root.
-- [ ] Add `cosign.key`'s contents as the `COSIGN_PRIVATE_KEY` repo secret.
+- [x] Add `cosign.key`'s contents as the `COSIGN_PRIVATE_KEY` repo secret.
       (`.gitignore` already blocks committing `cosign.key`.)
-- [ ] If you set a key password, add it as the `COSIGN_PASSWORD` repo secret.
+- [x] If you set a key password, add it as the `COSIGN_PASSWORD` repo secret.
 
 ## 3. GitHub / GHCR
 
@@ -93,7 +93,7 @@ reached over the LAN instead. Only server/staff/admin get tagged.
 
 ## 7. Hostname pool
 
-- [ ] Define the real pool in `/var/lib/svk/hostname-pool` on the server
+- [x] Define the real pool in `/var/lib/svk/hostname-pool` on the server
       (seeded from `hostname-pool.example` on first run — edit the real file,
       not the example). Give yourself more names than machines.
 
@@ -105,7 +105,7 @@ reached over the LAN instead. Only server/staff/admin get tagged.
 - [x] System flatpak list shipped (`files/base/etc/svk/flatpaks.list`, installed
       by `svk-flatpak-preinstall.service`). Add per-image extras under
       `files/{student,staff}/etc/svk/flatpaks.list.d/*.list` if needed.
-- [ ] Decide the real Firefox extension set + settings in
+- [x] Decide the real Firefox extension set + settings in
       `files/base/etc/firefox/policies/policies.json` (uBlock Origin is shipped
       as a starter). Add each extension's AMO `install_url` and any homepage /
       bookmarks / locked prefs. Consider a stricter `installation_mode: blocked`
