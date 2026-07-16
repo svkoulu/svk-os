@@ -1,12 +1,12 @@
-# school-staff — normal desktop for the handful of staff laptops.
+# svk-staff — normal desktop for the handful of staff laptops.
 #
-# Built FROM school-base (build.yml: build-staff `needs: build-base`). No kiosk
+# Built FROM svk-base (build.yml: build-staff `needs: build-base`). No kiosk
 # lockdown, no skel reset, normal login. Staff install their own apps as
 # Flatpak `--user` (~/.local/share/flatpak survives image updates).
-FROM ghcr.io/<<GHCR_NAMESPACE>>/school-base:latest
+FROM ghcr.io/fmorato/svk-base:latest
 
 # Staff config tree:
-#   - /etc/school/tailscale-tag  -> tag:svk-staff
+#   - /etc/svk/tailscale.conf  -> tag:svk-staff
 COPY files/staff/ /
 
 COPY build.staff.sh /tmp/build.sh

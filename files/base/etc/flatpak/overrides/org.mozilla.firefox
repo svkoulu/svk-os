@@ -1,0 +1,10 @@
+# Let the sandboxed Firefox read the host's managed policies. Firefox looks for
+# /etc/firefox/policies/policies.json, but a flatpak can't see host /etc by
+# default — this read-only bind makes just that directory visible.
+#
+# NOTE: this file REPLACES any system override Bluefin ships for Firefox at the
+# same path. If Bluefin grants Firefox extra permissions via such an override,
+# fold them in here rather than losing them. Verify on real hardware (TODO §11):
+#   flatpak info --show-permissions org.mozilla.firefox
+[Context]
+filesystems=/etc/firefox:ro

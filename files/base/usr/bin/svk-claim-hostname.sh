@@ -1,5 +1,5 @@
 #!/usr/bin/bash
-# school-claim-hostname.sh — claim a fleet hostname on first boot.
+# svk-claim-hostname.sh — claim a fleet hostname on first boot.
 #
 # WHY THIS EXISTS
 #   Every laptop rolls off the same image, so they all boot with the same
@@ -21,9 +21,9 @@
 set -euo pipefail
 
 # The dispenser runs on the server, which is also the registry cache host.
-DISPENSER_HOST="<<REGISTRY_CACHE_HOST>>"
+DISPENSER_HOST="svk-server.local"
 DISPENSER_PORT=8765
-STAMP=/var/lib/school/.hostname-claimed
+STAMP=/var/lib/svk/.hostname-claimed
 
 mkdir -p "$(dirname "$STAMP")"
 [ -e "$STAMP" ] && exit 0   # already claimed; nothing to do
@@ -53,8 +53,13 @@ done
 
 if [ -z "$NAME" ]; then
     # Fallback: deterministic short name from the machine-id. Not pretty, but
-    # unique and stable. Tag prefix from the tailscale-tag file if present.
-    tag="$(sed 's/^tag:svk-//; s/^tag://' /etc/school/tailscale-tag 2>/dev/null || echo node)"
+    # unique and stable. Tag prefix comes from /etc/svk/tailscale.conf if present.
+    tag=node
+    if [ -r /etc/svk/tailscale.conf ]; then
+        # shellcheck disable=SC1091
+        . /etc/svk/tailscale.conf
+        tag="$(printf '%s' "${TAILSCALE_TAG:-}" | sed 's/^tag:svk-//; s/^tag://')"
+    fi
     NAME="svk-${tag:-node}-${MACHINE_ID:0:8}"
 fi
 

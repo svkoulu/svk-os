@@ -1,6 +1,6 @@
 # Kiosk defaults, compiled into the binary `local` db by `dconf update` in
 # build.student.sh. These are DEFAULTS; the matching entries in
-# locks/00-school-locks make them unchangeable. Add/trim to taste.
+# locks/00-svk-locks make them unchangeable. Add/trim to taste.
 
 [org/gnome/desktop/lockdown]
 # No arbitrary command execution (Alt-F2), no printing/print-setup escape,
@@ -8,7 +8,7 @@
 disable-command-line=true
 disable-user-switching=true
 disable-lock-screen=true
-disable-log-out=false
+disable-log-out=true
 
 [org/gnome/desktop/screensaver]
 lock-enabled=false

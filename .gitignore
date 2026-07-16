@@ -2,8 +2,15 @@
 cosign.key
 *.key
 
-# Compiled Ignition and any real Tailscale keys.
+# Compiled Ignition (contains the Tailscale key + the server's SSH private key).
 *.ign
+
+# Provisioning secrets, injected at compile time by `butane --files-dir .`.
+# The real files live here locally and never get committed; only the README and
+# the *.example templates are tracked.
+secrets/*
+!secrets/README.md
+!secrets/*.example
 
 # Local ISO / build output.
 output/

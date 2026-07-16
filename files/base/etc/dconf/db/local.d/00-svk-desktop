@@ -1,0 +1,33 @@
+# Fleet-wide GNOME desktop defaults — apply to BOTH staff and student (opilas),
+# compiled into the binary `local` db by `dconf update` at build time. These are
+# DEFAULTS (not locks), so staff can still change them; the student image layers
+# its lockdown/locks on top via its own local.d files.
+
+[org/gnome/desktop/interface]
+# Show the day of the week next to the clock (e.g. "Mon 14:03").
+clock-show-weekday=true
+
+[org/gnome/desktop/calendar]
+# Show ISO week numbers in the calendar / date popovers.
+show-weekdate=true
+
+[org/gnome/desktop/wm/preferences]
+# Put minimize + maximize + close in every window's titlebar (GNOME ships only
+# close by default).
+button-layout='appmenu:minimize,maximize,close'
+
+[org/gnome/shell]
+# Enable the Desktop Icons NG (DING) extension so files on the Desktop show.
+#
+# WARNING: this key is a LIST that REPLACES, not merges. If Bluefin enables other
+# extensions by default, listing only DING here turns those off. Before shipping,
+# check a stock image (`gsettings get org.gnome.shell enabled-extensions`) and
+# fold DING into that list. Also confirm the UUID — this assumes
+# ding@rastersoft.com; a different desktop-icons extension means a different UUID.
+enabled-extensions=['ding@rastersoft.com']
+
+[org/gnome/shell/extensions/ding]
+# What DING puts on the desktop.
+show-home=true
+show-trash=true
+show-volumes=true

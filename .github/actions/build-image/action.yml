@@ -7,7 +7,7 @@ description: Build, push (two tags) and cosign-sign a bootc image.
 
 inputs:
   image:
-    description: Image short name (school-base, school-student, ...).
+    description: Image short name (svk-base, svk-student, ...).
     required: true
   containerfile:
     description: Path to the Containerfile.

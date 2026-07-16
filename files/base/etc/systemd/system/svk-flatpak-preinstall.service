@@ -1,0 +1,17 @@
+# Installs the fleet's system Flatpaks (/etc/svk/flatpaks.list) from Flathub on
+# boot. Enabled in build.base.sh. Needs the network; idempotent, so a missed or
+# partial run is fixed on the next boot.
+[Unit]
+Description=svk: preinstall fleet Flatpaks from Flathub
+After=network-online.target
+Wants=network-online.target
+# Best-effort: don't block other units on a slow Flathub.
+StartLimitIntervalSec=0
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/svk-flatpak-preinstall.sh
+
+[Install]
+WantedBy=multi-user.target

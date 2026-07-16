@@ -7,7 +7,7 @@
 // distro defaults while leaving room (50+) for later overrides.
 
 polkit.addRule(function(action, subject) {
-    if (subject.user == "student") {
+    if (subject.user == "opilas") {
         // Blanket-deny the sensitive action families a kiosk should never allow.
         if (action.id.indexOf("org.freedesktop.packagekit.")   == 0 ||
             action.id.indexOf("org.freedesktop.udisks2.")       == 0 ||

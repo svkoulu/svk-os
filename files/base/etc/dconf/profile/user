@@ -1,0 +1,9 @@
+# dconf profile for every desktop. The user's writable db sits on top of the
+# read-only system `local` db, so fleet-wide DEFAULTS in local.d apply while the
+# user can still change anything that isn't explicitly locked.
+#
+# The student image ships an identical profile plus extra locks; because the
+# filename is the same, its copy simply replaces this one at build time, and
+# both images share the same `local` db name.
+user-db:user
+system-db:local

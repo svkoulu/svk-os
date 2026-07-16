@@ -7,18 +7,18 @@
 #
 # Idempotent: the same machine-id always gets the same name, so a client that
 # retries (or re-provisions from the same disk) keeps its name and we don't burn
-# pool entries. State lives under /var/lib/school on the data volume, so it
+# pool entries. State lives under /var/lib/svk on the data volume, so it
 # survives image updates (bootc only replaces /usr, not /var).
 #
-# The pool itself is defined LATER — /var/lib/school/hostname-pool. An example
-# ships at /usr/share/school/hostname-pool.example; on first run we seed the
+# The pool itself is defined LATER — /var/lib/svk/hostname-pool. An example
+# ships at /usr/share/svk/hostname-pool.example; on first run we seed the
 # real file from it if it's missing.
 set -euo pipefail
 
-STATE_DIR=/var/lib/school
+STATE_DIR=/var/lib/svk
 POOL="${STATE_DIR}/hostname-pool"
 ASSIGN="${STATE_DIR}/hostname-assignments"
-SEED=/usr/share/school/hostname-pool.example
+SEED=/usr/share/svk/hostname-pool.example
 LOCK="${STATE_DIR}/.dispenser.lock"
 
 mkdir -p "$STATE_DIR"

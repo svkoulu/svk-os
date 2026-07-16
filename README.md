@@ -18,12 +18,13 @@ risk this repo is designed around; see [Fail loudly](#fail-loudly).
 
 ```
 ghcr.io/ublue-os/bluefin:stable
-  └── school-base              # Tailscale, print stack, certs, fwupd, ghcr mirror, cosign policy
-        ├── school-student     # locked kiosk: autologin + skel reset + dconf/polkit lockdown
-        └── school-staff       # normal desktop, --user flatpaks
+  └── svk-base              # Tailscale, mDNS, admin SSH, CLI tools, desktop defaults,
+      │                       power switching, print stack, certs, fwupd, ghcr mirror, cosign
+        ├── svk-student     # locked kiosk: autologin (opilas) + skel reset + dconf/polkit lockdown
+        └── svk-staff       # normal desktop, --user flatpaks
 
 ghcr.io/ublue-os/ucore:stable
-  └── school-server            # pull-through registry cache + hostname dispenser (independent)
+  └── svk-server            # pull-through registry cache + hostname dispenser (independent)
 ```
 
 We use raw `Containerfile`s (the ublue `image-template` lineage) rather than
@@ -40,7 +41,8 @@ Containerfile.{base,student,staff,server}   # one manifest per image
 build.{base,student,staff,server}.sh        # package installs / config per image
 files/{base,student,staff,server}/          # static trees COPY'd to image "/"
 server.bu                                   # Butane for the uCore server's first install
-cosign.pub                                  # your image-signing public key (placeholder here)
+cosign.pub                                  # your image-signing public key (committed)
+secrets/                                    # server-install secrets (gitignored; see its README)
 .github/actions/build-image/                # shared build+sign+push composite action
 .github/workflows/build.yml                 # weekly/push/dispatch: build all four
 .github/workflows/iso.yml                   # manual: student/staff installer ISOs
@@ -61,17 +63,32 @@ grep -rn '<<' . --include=Containerfile.\* --include=\*.sh --include=\*.yml \
 
 | Placeholder | Meaning | Where |
 |---|---|---|
-| `<<GHCR_NAMESPACE>>` | GitHub user/org owning the images | Containerfiles, workflows, `policy.json`, `registries.d`, `server.bu` |
-| `<<REGISTRY_CACHE_HOST>>` | Cache server host (its Tailscale name), e.g. `svk-server:5000` for the mirror | `files/base/.../010-ghcr-mirror.conf`, hostname-claim script |
-| `<<ADMIN_SSH_PUBLIC_KEY>>` | Your SSH key for the server | `server.bu` |
-| `<<TAILSCALE_AUTHKEY>>` | Server's one-off pre-auth key (Ignition only, never an image) | `server.bu` |
+| `<<GHCR_NAMESPACE>>` | GitHub user/org owning the images — **set to `fmorato`** | Containerfiles, workflows, `policy.json`, `registries.d`, `server.bu` |
+| `<<REGISTRY_CACHE_HOST>>` | Cache server host — **set to `svk-server.local`** (mDNS, so LAN-only students resolve it too) | `files/base/.../010-ghcr-mirror.conf`, hostname-claim script |
+| `<<ADMIN_SSH_PUBLIC_KEY>>` | Admin operator key — **filled**, baked into every device + `server.bu` | `files/base/etc/ssh/authorized_keys.d/admin`, `server.bu` |
 | `<<ADD ... HERE>>` | Optional package/flatpak/font lists | `build.*.sh` |
 
+Two **server-install secrets** are no longer inline placeholders — they're
+injected from `secrets/` at compile time (`butane --files-dir .`) so they never
+touch git. Create `secrets/id_ed25519` (the server's outbound SSH private key)
+and `secrets/tailscale-authkey` (its one-off pre-auth key) — see
+[`secrets/README.md`](secrets/README.md).
+
 The mirror `location` and the hostname-claim `DISPENSER_HOST` both point at the
-**same** server. For the mirror use `host:5000`; for the dispenser the script
-already appends the port.
+**same** server, `svk-server.local`. For the mirror use `svk-server.local:5000`;
+for the dispenser the script already appends the port. `.local` (mDNS) rather
+than the bare Tailscale name is deliberate — see [Remote access & local
+networking](#remote-access--local-networking).
 
 ### 2. cosign setup (image signing)
+
+Install `cosign` to `~/.local/bin` (make sure it's on your `PATH`):
+
+```bash
+curl -fsSL -o ~/.local/bin/cosign \
+  https://github.com/sigstore/cosign/releases/latest/download/cosign-linux-amd64
+chmod +x ~/.local/bin/cosign
+```
 
 Generate a keypair locally — do **not** commit the private key:
 
@@ -85,7 +102,7 @@ cosign generate-key-pair
 - Add the contents of **`cosign.key`** as the `COSIGN_PRIVATE_KEY` repo secret.
 - `.gitignore` already blocks `cosign.key` from being committed.
 
-`cosign.pub` is baked into every image at `/etc/pki/containers/school-cosign.pub`
+`cosign.pub` is baked into every image at `/etc/pki/containers/svk-cosign.pub`
 and referenced by `/etc/containers/policy.json`, so machines only accept images
 signed with your key.
 
@@ -107,7 +124,7 @@ grant the fleet read access) so machines can pull. Settings → Packages.
 Every desktop image ships `files/base/etc/containers/registries.conf.d/010-ghcr-mirror.conf`,
 which registers the school server as a **non-exclusive mirror** for `ghcr.io`:
 
-- Podman tries the **local cache first** (`<<REGISTRY_CACHE_HOST>>`), so 19
+- Podman tries the **local cache first** (`svk-server.local:5000`), so 19
   laptops don't each drag multi-GB layers over the school's unstable network.
 - If the cache is **unreachable** (server down, or a staff laptop off-site),
   Podman **falls back to `ghcr.io`** automatically. The machine stays bootable.
@@ -128,33 +145,53 @@ base, then rebase onto the target image:
 
 ```bash
 # student kiosk
-sudo bootc switch ghcr.io/<<GHCR_NAMESPACE>>/school-student:latest
+sudo bootc switch ghcr.io/fmorato/svk-student:latest
 
 # staff desktop
-sudo bootc switch ghcr.io/<<GHCR_NAMESPACE>>/school-staff:latest
+sudo bootc switch ghcr.io/fmorato/svk-staff:latest
 
 # server (usually done by server.bu at install; manual form:)
-sudo bootc switch ghcr.io/<<GHCR_NAMESPACE>>/school-server:latest
+sudo bootc switch ghcr.io/fmorato/svk-server:latest
 ```
 
 Thereafter the machine auto-updates from the same ref. Pin to a dated tag
 (`:stable-YYYYMMDD`) instead of `:latest` if you want to stage/roll back.
 
-### Tailscale enrollment (TODO — no keys in images)
+### Tailscale enrollment
 
-Images **install** Tailscale but bake **no** auth key. Each machine enrolls at
-provision time. Supply a one-off pre-auth key then and run, using the tag baked
-at `/etc/school/tailscale-tag` (`tag:svk-student` / `tag:svk-staff` / `tag:svk-admin`):
+Images **install** Tailscale but bake **no** auth key — it rides a USB and is
+read once at first boot. Each image carries an explicit
+`/etc/svk/tailscale.conf` with its tag and an enrol flag:
 
-```bash
-sudo tailscale up \
-  --authkey "$AUTHKEY_FROM_USB_OR_IGNITION" \
-  --advertise-tags "$(cat /etc/school/tailscale-tag)"
-```
+| Image | `TAILSCALE_TAG` | `TAILSCALE_ENROLL` |
+|---|---|---|
+| staff | `tag:svk-staff` | `yes` |
+| student | `tag:svk-student` | `no` (off the tailnet; tag kept only for hostnames) |
+| server | `tag:svk-admin` | `no` (enrols via Ignition instead) |
 
-**TODO for the maintainer:** decide the key-delivery channel — a file on the
-install USB, or (for the server) the Ignition `tailscale-authkey` file in
-`server.bu`. **Never** commit a key or bake one into an image.
+**Desktops** enrol automatically via `svk-tailscale-enroll.service` (in the base
+image, enabled everywhere). On first boot it:
+
+1. reads `/etc/svk/tailscale.conf`; if `TAILSCALE_ENROLL=no` (students), it stops.
+2. mounts the **provisioning USB** — a filesystem **labelled `SVK-PROV`** holding
+   a plain-text file **`tailscale-authkey`** — read-only.
+3. runs `tailscale up --authkey <that key> --advertise-tags $TAILSCALE_TAG`.
+
+No USB / no key ⇒ it logs and exits without blocking the boot; you can always
+`tailscale up` by hand later. A stamp (`/var/lib/svk/.tailscale-enrolled`) makes
+it one-shot, but a *failed* attempt retries on the next boot.
+
+Because one USB enrols many staff laptops, its key must be a **reusable**,
+`tag:svk-staff` pre-auth key (short expiry; revoke it after provisioning). The
+**server** does not use this flow — `server.bu` writes its own one-off key via
+Ignition.
+
+**Can one USB install both staff and student machines?** The *auth-key* USB
+(`SVK-PROV`), **yes** — students ignore it (`TAILSCALE_ENROLL=no`) and staff
+consume it, so the same stick is safe for both. The *installer* media is
+different, though: `svk-student` and `svk-staff` are separate ISOs, so each
+device type boots from its own installer. (You can put the `SVK-PROV` data on a
+second partition of the installer stick, but the ISO itself is still per-image.)
 
 ### Hostname provisioning
 
@@ -164,11 +201,10 @@ tailnet. This repo solves it with a tiny **hostname dispenser** on the server:
 - Server: a socket-activated dispenser (`hostname-dispenser.socket` →
   `hostname-dispenser.sh`) hands out one name per machine from a **pool**. It's
   idempotent (same machine-id → same name) and keeps state on the data volume.
-- The **pool is defined later** — edit `/var/lib/school/hostname-pool` on the
-  server. A placeholder pool ships at
-  `files/server/usr/share/school/hostname-pool.example` and is auto-seeded on
-  first run.
-- Client: a first-boot oneshot (`school-claim-hostname.service`) asks the
+  The pool lives at `/var/lib/svk/hostname-pool` (auto-seeded from
+  `files/server/usr/share/svk/hostname-pool.example`); **defining the real pool
+  is a one-time admin task — see [`TODO.md`](TODO.md) §7.**
+- Client: a first-boot oneshot (`svk-claim-hostname.service`) asks the
   dispenser for a name and sets it. If the server is unreachable it falls back
   to a deterministic `svk-<tag>-<machineid>` name, so **provisioning never
   blocks**.
@@ -182,11 +218,94 @@ required for machines to resolve on the tailnet.
 
 ---
 
+## Remote access & local networking
+
+The fleet is bigger than a free Tailscale tailnet (~50 devices) once you count
+the ~19+ student laptops, so the network is split into **two planes**:
+
+- **LAN plane — mDNS / Avahi (`.local`), every machine including students.**
+  Each box advertises `<hostname>.local` (Avahi) and resolves others' `.local`
+  names (nss-mdns), both wired up in `build.base.sh` / `build.server.sh`. This is
+  how untagged student machines reach the cache and dispenser
+  (`svk-server.local`) and how the server reaches *them* — no tailnet needed.
+- **Tailnet plane — Tailscale MagicDNS, main devices only.** Server, staff, and
+  admin laptops. Students are deliberately **not** enrolled
+  (`build.student.sh` disables `tailscaled`); that's what keeps us under the cap.
+
+### The `admin` operator account (all devices)
+
+Every device has a dedicated **`admin`** user (uid 980, system-range so it never
+shows on the greeter), key-only, with passwordless sudo:
+
+| Piece | Where |
+|---|---|
+| Authorized keys (admin operator + `svk-server`) | `files/base/etc/ssh/authorized_keys.d/admin` |
+| SSH hardening — key-only, no root, `AllowGroups wheel`, modern crypto, no forwarding | `files/base/etc/ssh/sshd_config.d/10-svk-hardening.conf` |
+| Passwordless sudo | `files/base/etc/sudoers.d/10-svk-admin` |
+| Account + sshd/avahi enablement | `build.base.sh` |
+| Home dir (created at boot; `/var/home` isn't in the image) | `files/base/etc/tmpfiles.d/svk-admin.conf` |
+
+Only `admin` (group `wheel`) may SSH in — the `opilas` kiosk user and staff log
+in at the console, never over SSH. The server gets the same hardening via
+`server.bu`, **except** it allows TCP forwarding (it's the jump host below).
+
+### The jump-host flow
+
+Admin can't reach students directly (not on the tailnet), so the **server is the
+bridge** between the tailnet and the LAN-only fleet:
+
+```
+admin laptop ──Tailscale SSH──▶ svk-server ──LAN SSH (admin@ , key)──▶ svk-student-NN.local
+ (tag:svk-admin)                (tag:svk-server)                        (untagged, .local)
+```
+
+- **Hop 1** (admin → server) uses **Tailscale SSH** — authenticated by the ACL,
+  no key needed. `ssh admin@svk-server.local` also works on the LAN (break-glass,
+  via the admin operator key) if Tailscale is down.
+- **Hop 2** (server → device) uses a **real SSH key**: the server's private key
+  (`secrets/id_ed25519`, injected into `server.bu`), whose public half is in
+  every device's `authorized_keys.d/admin`. One-liner from your laptop:
+  `ssh -J admin@svk-server admin@svk-student-03.local` (the `-J` is why the
+  server allows TCP forwarding while the leaf devices don't).
+- The server already **knows every device name** it handed out —
+  `/var/lib/svk/hostname-assignments` — or use `avahi-browse -rt _ssh._tcp`.
+
+### Tailscale tags & ACL (define these in the admin console)
+
+| Tag | Applies to |
+|---|---|
+| `tag:svk-admin` | IT operator laptops (source of admin access) |
+| `tag:svk-server` | the cache / dispenser / jump-host server |
+| `tag:svk-staff` | staff desktops (on the tailnet for remote support) |
+| ~~`tag:svk-student`~~ | not enrolled — LAN-only (keep the tag *file* for the hostname prefix) |
+
+```jsonc
+{
+  "tagOwners": {
+    "tag:svk-admin":  ["autogroup:admin"],
+    "tag:svk-server": ["autogroup:admin"],
+    "tag:svk-staff":  ["autogroup:admin"]
+  },
+  "ssh": [
+    { "action": "accept",
+      "src": ["tag:svk-admin"],
+      "dst": ["tag:svk-server", "tag:svk-staff"],
+      "users": ["admin"] }
+  ],
+  "acls": [
+    { "action": "accept", "src": ["tag:svk-admin"], "dst": ["*:*"] },
+    { "action": "accept", "src": ["tag:svk-staff"], "dst": ["tag:svk-server:22,5000,8765"] }
+  ]
+}
+```
+
+---
+
 ## Building installer ISOs
 
 `bootc switch` needs an already-running bootc system. To provision *bare metal*,
 build an installer ISO from the Actions tab → **iso** → *Run workflow* (pick
-`both`, `school-student`, or `school-staff`). It runs
+`both`, `svk-student`, or `svk-staff`). It runs
 [`bootc-image-builder`](https://github.com/osbuild/bootc-image-builder) and
 uploads the `.iso` as a workflow artifact.
 
@@ -198,14 +317,15 @@ Fedora CoreOS-based and provisions with **Ignition**, authored as **Butane**
 install:
 
 ```bash
-butane --pretty --strict server.bu > server.ign
+butane --pretty --strict --files-dir . server.bu > server.ign   # --files-dir pulls in secrets/
 # boot the CoreOS/uCore installer, then:
 coreos-installer install /dev/sda --ignition-file server.ign
 ```
 
 `server.bu` creates the admin user, mounts the cache volume, enrolls Tailscale
-(`tag:svk-admin`), and rebases onto `school-server`. Keep `server.ign` out of git
-(`.gitignore` covers `*.ign`); it may contain the Tailscale key.
+(`tag:svk-admin`), and rebases onto `svk-server`. The compiled `server.ign`
+holds the two `secrets/` values (the Tailscale key and the server's SSH private
+key) in cleartext — keep it out of git (`.gitignore` covers `*.ign`).
 
 ---
 
@@ -244,14 +364,14 @@ scheduled failures are the easiest to miss.
 
 You need `podman` (and `bootc` is included in the base images, so the in-build
 lint just works). Build order matters only for the derived images, which pull
-`school-base` from the registry:
+`svk-base` from the registry:
 
 ```bash
-podman build -f Containerfile.base   -t school-base   .
-podman build -f Containerfile.staff  -t school-staff  .   # after base is pushed
-podman build -f Containerfile.student -t school-student .  # after base is pushed
-podman build -f Containerfile.server -t school-server .   # independent
+podman build -f Containerfile.base   -t svk-base   .
+podman build -f Containerfile.staff  -t svk-staff  .   # after base is pushed
+podman build -f Containerfile.student -t svk-student .  # after base is pushed
+podman build -f Containerfile.server -t svk-server .   # independent
 ```
 
 (For a fully local student/staff build without pushing base first, temporarily
-point their `FROM` at the local `school-base` tag.)
+point their `FROM` at the local `svk-base` tag.)

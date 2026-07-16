@@ -1,0 +1,4 @@
+# Re-evaluate the power profile whenever the AC adapter is plugged or unplugged.
+# We start the oneshot (not run the script inline) so the D-Bus call to
+# power-profiles-daemon happens in a proper service context, not udev's sandbox.
+SUBSYSTEM=="power_supply", ATTR{type}=="Mains", RUN+="/usr/bin/systemctl start --no-block svk-power-profile.service"

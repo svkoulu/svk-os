@@ -13,11 +13,11 @@ on:
         description: Which ISO(s) to build.
         type: choice
         default: both
-        options: [both, school-student, school-staff]
+        options: [both, svk-student, svk-staff]
 
 env:
   REGISTRY: ghcr.io
-  NAMESPACE: <<GHCR_NAMESPACE>>
+  NAMESPACE: fmorato
 
 permissions:
   contents: read
@@ -29,7 +29,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        image: [school-student, school-staff]
+        image: [svk-student, svk-staff]
     steps:
       - name: Should this image build?
         id: gate

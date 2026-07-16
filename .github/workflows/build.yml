@@ -17,8 +17,8 @@ on:
 env:
   REGISTRY: ghcr.io
   # GitHub user/org that owns the images. Must match cosign.pub's owner and the
-  # <<GHCR_NAMESPACE>> placeholders in the Containerfiles / files tree.
-  NAMESPACE: <<GHCR_NAMESPACE>>
+  # fmorato placeholders in the Containerfiles / files tree.
+  NAMESPACE: fmorato
 
 # GITHUB_TOKEN needs to push packages. Keyed cosign signing needs no id-token.
 permissions:
@@ -26,7 +26,7 @@ permissions:
   packages: write
 
 jobs:
-  # ---- school-base: the shared desktop layer. Everything below FROMs it. ----
+  # ---- svk-base: the shared desktop layer. Everything below FROMs it. ----
   build-base:
     runs-on: ubuntu-latest
     steps:
@@ -34,7 +34,7 @@ jobs:
       - uses: sigstore/cosign-installer@v3
       - uses: ./.github/actions/build-image
         with:
-          image: school-base
+          image: svk-base
           containerfile: Containerfile.base
           registry: ${{ env.REGISTRY }}
           namespace: ${{ env.NAMESPACE }}
@@ -43,22 +43,22 @@ jobs:
           cosign_key: ${{ secrets.COSIGN_PRIVATE_KEY }}
           cosign_password: ${{ secrets.COSIGN_PASSWORD }}
 
-  # ---- student + staff: FROM the freshly pushed school-base. -----------------
+  # ---- student + staff: FROM the freshly pushed svk-base. -----------------
   build-derived:
     needs: build-base
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false          # a broken student build shouldn't hide a staff one
       matrix:
-        image: [school-student, school-staff]
+        image: [svk-student, svk-staff]
     steps:
       - uses: actions/checkout@v4
       - uses: sigstore/cosign-installer@v3
       - uses: ./.github/actions/build-image
         with:
           image: ${{ matrix.image }}
-          # Containerfile.school-student -> Containerfile.student, etc.
-          containerfile: Containerfile.${{ matrix.image == 'school-student' && 'student' || 'staff' }}
+          # Containerfile.svk-student -> Containerfile.student, etc.
+          containerfile: Containerfile.${{ matrix.image == 'svk-student' && 'student' || 'staff' }}
           registry: ${{ env.REGISTRY }}
           namespace: ${{ env.NAMESPACE }}
           username: ${{ github.actor }}
@@ -75,7 +75,7 @@ jobs:
       - uses: sigstore/cosign-installer@v3
       - uses: ./.github/actions/build-image
         with:
-          image: school-server
+          image: svk-server
           containerfile: Containerfile.server
           registry: ${{ env.REGISTRY }}
           namespace: ${{ env.NAMESPACE }}

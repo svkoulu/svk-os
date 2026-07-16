@@ -1,18 +1,18 @@
-# school-student — locked-down kiosk image for the ~19 student laptops.
+# svk-student — locked-down kiosk image for the ~19 student laptops.
 #
-# Built FROM the freshly-pushed school-base (see build.yml: build-student
+# Built FROM the freshly-pushed svk-base (see build.yml: build-student
 # `needs: build-base`), so it inherits Tailscale, the print stack, the ghcr.io
 # mirror and the cosign policy, and only adds the kiosk lockdown on top.
-FROM ghcr.io/<<GHCR_NAMESPACE>>/school-base:latest
+FROM ghcr.io/fmorato/svk-base:latest
 
 # Kiosk config tree:
-#   - /etc/gdm/custom.conf            -> autologin to the `student` account
+#   - /etc/gdm/custom.conf            -> autologin to the `opilas` account
 #   - /etc/gdm/PostSession/Default    -> triggers the home reset on logout
-#   - /etc/systemd/system/...         -> reset-student-home unit
-#   - /usr/bin/...              -> reset-student-home script
+#   - /etc/systemd/system/...         -> reset-opilas-home unit
+#   - /usr/bin/...              -> reset-opilas-home script
 #   - /etc/dconf/...                  -> GNOME lockdown db + locks
 #   - /etc/polkit-1/rules.d/...       -> deny admin actions
-#   - /etc/school/tailscale-tag       -> tag:svk-student
+#   - /etc/svk/tailscale.conf       -> tag:svk-student
 COPY files/student/ /
 
 COPY build.student.sh /tmp/build.sh

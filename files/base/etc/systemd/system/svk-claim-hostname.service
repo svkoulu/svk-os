@@ -1,7 +1,7 @@
 # Claims a fleet hostname the first time a machine boots. Enabled in
 # build.base.sh; guarded by a stamp file so it's a no-op afterwards.
 [Unit]
-Description=Claim a fleet hostname from the school server
+Description=Claim a fleet hostname from the svk server
 # Needs the network up. If you enroll Tailscale before this runs (recommended,
 # since the dispenser is reachable over the tailnet), keep tailscaled here.
 After=network-online.target tailscaled.service
@@ -9,12 +9,12 @@ Wants=network-online.target
 # ConditionFirstBoot also short-circuits on subsequent boots; the stamp file in
 # the script is the belt-and-braces guard.
 ConditionFirstBoot=yes
-ConditionPathExists=!/var/lib/school/.hostname-claimed
+ConditionPathExists=!/var/lib/svk/.hostname-claimed
 
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-ExecStart=/usr/bin/school-claim-hostname.sh
+ExecStart=/usr/bin/svk-claim-hostname.sh
 
 [Install]
 WantedBy=multi-user.target

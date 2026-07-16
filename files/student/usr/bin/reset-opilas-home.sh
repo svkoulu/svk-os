@@ -1,27 +1,27 @@
 #!/usr/bin/bash
-# reset-student-home.sh — wipe /home/student back to a pristine /etc/skel.
+# reset-opilas-home.sh — wipe /home/opilas back to a pristine /etc/skel.
 #
 # REVIEW: This is the trickiest piece in the whole repo. It is invoked by GDM
 # PostSession (see /etc/gdm/PostSession/Default) which runs as root AFTER the
-# student session tears down and BEFORE the next autologin. That ordering is
+# opilas session tears down and BEFORE the next autologin. That ordering is
 # what makes a plain rm+copy safe. Two things to keep an eye on:
-#   1. Race: with autologin, GDM re-logs-in `student` immediately after logout.
+#   1. Race: with autologin, GDM re-logs-in `opilas` immediately after logout.
 #      PostSession runs synchronously in that gap, and we `systemctl start`
 #      (blocking, not --no-block) so the reset finishes before relogin. If you
 #      ever see a half-reset home, this ordering is the first suspect.
-#   2. Safety guard: we refuse to run while a `student` session is still active,
+#   2. Safety guard: we refuse to run while an `opilas` session is still active,
 #      so a mis-fire can never nuke a live session's files.
 # An alternative design is a pure systemd unit bound to the session scope
 # ending; PostSession was chosen because it is synchronous and dead simple.
 set -euo pipefail
 
-USER_NAME=student
+USER_NAME=opilas
 USER_HOME="/home/${USER_NAME}"
 SKEL=/etc/skel
 
-# Guard: bail out if the student is currently logged in anywhere.
+# Guard: bail out if opilas is currently logged in anywhere.
 if loginctl list-sessions --no-legend 2>/dev/null | grep -qw "$USER_NAME"; then
-    echo "reset-student-home: ${USER_NAME} session still active, skipping." >&2
+    echo "reset-opilas-home: ${USER_NAME} session still active, skipping." >&2
     exit 0
 fi
 
@@ -37,4 +37,4 @@ cp -aT "$SKEL" "$USER_HOME"
 chown -R "${USER_NAME}:${USER_NAME}" "$USER_HOME"
 chmod 700 "$USER_HOME"
 
-echo "reset-student-home: ${USER_HOME} reset to ${SKEL}."
+echo "reset-opilas-home: ${USER_HOME} reset to ${SKEL}."

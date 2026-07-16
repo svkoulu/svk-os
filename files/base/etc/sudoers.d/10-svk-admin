@@ -1,0 +1,4 @@
+# The local `admin` operator gets full, passwordless sudo on every fleet device.
+# admin logs in key-only (no account password), so requiring a sudo password
+# would lock it out of privilege escalation entirely — NOPASSWD is deliberate.
+admin ALL=(ALL) NOPASSWD: ALL

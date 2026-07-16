@@ -1,0 +1,12 @@
+# Fleet Flatpaks — installed on first boot by svk-flatpak-preinstall.service,
+# system-wide (--system) from Flathub, so every user (opilas + staff) gets them.
+# One app ID per line; '#' starts a comment; blank lines ignored. The install is
+# idempotent (already-present apps are skipped), so adding a line here and
+# rebuilding installs just the new app on the next boot.
+org.mozilla.firefox
+org.libreoffice.LibreOffice
+org.videolan.VLC
+org.gimp.GIMP
+org.gnome.gitlab.YaLTeR.VideoTrimmer     # "Video Trimmer" (GNOME)
+org.openshot.OpenShot
+no.mifi.losslesscut

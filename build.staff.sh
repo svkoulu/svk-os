@@ -1,5 +1,5 @@
 #!/usr/bin/bash
-# build.staff.sh — staff desktop. Almost nothing on top of school-base: normal
+# build.staff.sh — staff desktop. Almost nothing on top of svk-base: normal
 # login, no kiosk, no skel reset. Staff manage their own apps via Flatpak
 # `--user`, which persists across image updates.
 set -euo pipefail
@@ -13,9 +13,8 @@ for unit in brew-setup.service brew-update.service brew-update.timer \
     systemctl mask "$unit" 2>/dev/null || true
 done
 
-### Pre-installed staff software (optional) ###################################
-# System flatpaks / packages every staff member should have. Placeholder:
-#
-# flatpak install --system --noninteractive flathub <<ADD STAFF FLATPAKS HERE>>
-#
-# Per-person apps are NOT baked here — staff use `flatpak install --user`.
+### Pre-installed staff software ##############################################
+# The shared fleet apps (Firefox, LibreOffice, VLC, GIMP, video tools) come from
+# /etc/svk/flatpaks.list via svk-flatpak-preinstall.service (build.base.sh). For
+# staff-only extras, drop files/staff/etc/svk/flatpaks.list.d/*.list. Per-person
+# apps are still installed by staff themselves with `flatpak install --user`.

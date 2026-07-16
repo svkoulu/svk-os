@@ -4,19 +4,19 @@
     "Default is `insecureAcceptAnything` so upstream Bluefin/uCore/flathub etc.",
     "keep working (they use their own verification / are not cosign-signed the",
     "same way). Our OWN namespace is pinned to require a cosign signature made",
-    "with /etc/pki/containers/school-cosign.pub. Tighten `default` to",
+    "with /etc/pki/containers/svk-cosign.pub. Tighten `default` to",
     "`reject` later if you want a fully closed fleet.",
-    "Edit <<GHCR_NAMESPACE>> to match cosign.pub's owner."
+    "Edit fmorato to match cosign.pub's owner."
   ],
   "default": [
     { "type": "insecureAcceptAnything" }
   ],
   "transports": {
     "docker": {
-      "ghcr.io/<<GHCR_NAMESPACE>>": [
+      "ghcr.io/fmorato": [
         {
           "type": "sigstoreSigned",
-          "keyPath": "/etc/pki/containers/school-cosign.pub",
+          "keyPath": "/etc/pki/containers/svk-cosign.pub",
           "signedIdentity": { "type": "matchRepoDigestOrExact" }
         }
       ]

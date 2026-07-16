@@ -1,4 +1,4 @@
-# school-base — common layer for every desktop machine in the fleet.
+# svk-base — common layer for every desktop machine in the fleet.
 #
 # FROM the Bluefin stable tag. Because this is a *custom* bootc image, it does
 # NOT inherit upstream updates automatically: the base digest is effectively
@@ -15,7 +15,7 @@ COPY files/base/ /
 
 # The public key our own images are signed with. Committed at the repo root and
 # referenced by /etc/containers/policy.json so machines only accept our images.
-COPY cosign.pub /etc/pki/containers/school-cosign.pub
+COPY cosign.pub /etc/pki/containers/svk-cosign.pub
 
 # All package installs / cert imports / cleanup live in the build script so this
 # Containerfile stays a readable manifest rather than a wall of RUN chains.

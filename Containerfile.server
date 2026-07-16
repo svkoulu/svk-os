@@ -1,5 +1,5 @@
-# school-server — the one server. Independent branch of the hierarchy: built
-# FROM uCore, NOT from school-base (build.yml: build-server `needs: []`).
+# svk-server — the one server. Independent branch of the hierarchy: built
+# FROM uCore, NOT from svk-base (build.yml: build-server `needs: []`).
 #
 # Its jobs:
 #   1. Run a pull-through registry cache for ghcr.io (Podman quadlet) so the 19
@@ -15,9 +15,9 @@ FROM ghcr.io/ublue-os/ucore:stable
 #   - /etc/containers/systemd/registry.container -> pull-through cache quadlet
 #   - /usr/bin/hostname-dispenser.sh       -> pool dispenser
 #   - /etc/systemd/system/hostname-dispenser.*   -> socket + template service
-#   - /usr/share/school/hostname-pool.example    -> example pool (real one lives
+#   - /usr/share/svk/hostname-pool.example    -> example pool (real one lives
 #                                                   on the data volume)
-#   - /etc/school/tailscale-tag                  -> tag:svk-admin
+#   - /etc/svk/tailscale.conf                  -> tag:svk-admin
 COPY files/server/ /
 
 COPY build.server.sh /tmp/build.sh

@@ -1,0 +1,36 @@
+{
+  "//": "Firefox Enterprise Policies for the fleet. This is the supported way to ship extensions + settings pre-configured. For the FLATPAK Firefox to read it, /etc/firefox is exposed to the sandbox via /etc/flatpak/overrides/org.mozilla.firefox. Full key reference: https://mozilla.github.io/policy-templates/",
+  "policies": {
+    "DisableTelemetry": true,
+    "DisableFirefoxStudies": true,
+    "DisablePocket": true,
+    "DisableFeedbackCommands": true,
+    "DontCheckDefaultBrowser": true,
+    "OverrideFirstRunPage": "",
+    "OverridePostUpdatePage": "",
+    "UserMessaging": {
+      "WhatsNew": false,
+      "ExtensionRecommendations": false,
+      "FeatureRecommendations": false,
+      "SkipOnboarding": true
+    },
+    "FirefoxHome": {
+      "Search": true,
+      "TopSites": true,
+      "SponsoredTopSites": false,
+      "Pocket": false,
+      "SponsoredPocket": false,
+      "Snippets": false,
+      "Highlights": false
+    },
+    "ExtensionSettings": {
+      "*": {
+        "installation_mode": "allowed"
+      },
+      "uBlock0@raymondhill.net": {
+        "installation_mode": "force_installed",
+        "install_url": "https://addons.mozilla.org/firefox/downloads/latest/ublock-origin/latest.xpi"
+      }
+    }
+  }
+}
