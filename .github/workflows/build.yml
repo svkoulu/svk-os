@@ -31,7 +31,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: sigstore/cosign-installer@v4
+      - uses: sigstore/cosign-installer@v4.1.2
         with:
           # Pin to the Cosign v2 line: v4 of the installer defaults to Cosign
           # v3, which switched image-signature storage to OCI 1.1 referrers.
@@ -62,7 +62,7 @@ jobs:
         image: [svk-student, svk-staff]
     steps:
       - uses: actions/checkout@v7
-      - uses: sigstore/cosign-installer@v4
+      - uses: sigstore/cosign-installer@v4.1.2
         with:
           # Pin to the Cosign v2 line: v4 of the installer defaults to Cosign
           # v3, which switched image-signature storage to OCI 1.1 referrers.
@@ -90,7 +90,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: sigstore/cosign-installer@v4
+      - uses: sigstore/cosign-installer@v4.1.2
         with:
           # Pin to the Cosign v2 line: v4 of the installer defaults to Cosign
           # v3, which switched image-signature storage to OCI 1.1 referrers.
