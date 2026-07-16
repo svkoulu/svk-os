@@ -49,6 +49,33 @@ done
 # system-wide, no --user installs. To give students EXTRA apps beyond the shared
 # list, drop files/student/etc/svk/flatpaks.list.d/*.list (the service reads it).
 
+### Strip default Bluefin/GNOME apps a kiosk has no use for ##################
+# gnome-tour (Tour), malcontent-control (Parental Controls) and input-remapper
+# (Input Remapper) are upstream RPM packages (see ublue-os/bluefin's
+# build_files/base/04-packages.sh and Fedora Workstation's default set) —
+# remove idempotently like the install loop above. Community/Documentation/
+# System Update are plain .desktop files baked in by projectbluefin/common
+# (not RPM-owned, so `rm` instead of override): they point at Discourse, a
+# bundled PDF, and `ujust update` — none relevant to a kiosk whose updates
+# come from the weekly CI rebuild, not per-machine action.
+TO_REMOVE=(gnome-tour malcontent-control input-remapper)
+present=()
+for pkg in "${TO_REMOVE[@]}"; do
+    rpm -q "$pkg" >/dev/null 2>&1 && present+=("$pkg")
+done
+[ ${#present[@]} -gt 0 ] && rpm-ostree override remove "${present[@]}"
+
+rm -f /usr/share/applications/discourse.desktop \
+      /usr/share/applications/documentation.desktop \
+      /usr/share/applications/system-update.desktop
+
+### Bluetooth off by default ##################################################
+# rfkill-block bluetooth on every boot (files/student/etc/systemd/system/
+# svk-bluetooth-default-off.service). The radio/daemon stay available so a
+# student CAN still switch it on for the session via Quick Settings; it just
+# resets to off on the next boot instead of a prior student's choice sticking.
+systemctl enable svk-bluetooth-default-off.service
+
 ### Enable the home-reset unit ################################################
 systemctl enable reset-opilas-home.service
 

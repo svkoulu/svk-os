@@ -29,6 +29,8 @@ PACKAGES=(
     wget           # HTTP downloader
     ncdu           # disk-usage explorer
     fd-find        # fast find(1) replacement; provides /usr/bin/fd
+    glibc-langpack-fi   # fi_FI.UTF-8 locale data; svk-student sets opilas's
+                        # session LANG/LANGUAGE to it via /etc/skel
     # cups-filters gutenprint hplip   # <-- add the exact print packages you need
     # <<ADD SYSTEM PACKAGES HERE>>    # e.g. school-specific fonts, tools
 )
@@ -71,11 +73,32 @@ fi
 # sshd hardening (key-only, no root, restricted crypto) lives in
 # /etc/ssh/sshd_config.d/10-svk-hardening.conf.
 if ! id admin &>/dev/null; then
-    useradd -M -u 980 -c "svk local admin" -s /bin/bash -G wheel admin
+    useradd -M -u 980 -c "SVK-Admin" -s /bin/bash -G wheel admin
 fi
 passwd -l admin                    # belt-and-braces: no password login, key only
 chmod 0440 /etc/sudoers.d/10-svk-admin   # visudo-conventional perms (COPY lands 0644)
 systemctl enable sshd.service
+
+### Lock (not uninstall) admin-facing GNOME apps ##############################
+# Tweaks, the terminal, Disks and the firewalld GUI stay installed (rpm-ostree
+# override remove is NOT used here) but neither `staff` nor `opilas` should be
+# able to launch them — chmod to root-only instead, so `admin` can still reach
+# one via `sudo` if a machine ever needs hands-on-keyboard diagnostics. Binary
+# and .desktop paths below are verified against each package's Fedora spec file
+# (src.fedoraproject.org/rpms/<pkg>, checked 2026-07); the existence guard means
+# a future Fedora rename just silently no-ops instead of failing the build.
+RESTRICT_APPS=(
+    "/usr/bin/gnome-tweaks:org.gnome.tweaks.desktop"        # Tweaks
+    "/usr/bin/ptyxis:org.gnome.Ptyxis.desktop"               # Terminal
+    "/usr/bin/gnome-disks:org.gnome.DiskUtility.desktop"     # Disks
+    "/usr/bin/firewall-config:firewall-config.desktop"       # Firewall
+)
+for entry in "${RESTRICT_APPS[@]}"; do
+    bin="${entry%%:*}"
+    desktop="${entry##*:}"
+    [ -e "$bin" ] && chmod 700 "$bin"
+    rm -f "/usr/share/applications/$desktop"
+done
 
 ### GNOME desktop defaults ####################################################
 # Compile the fleet-wide desktop defaults (files/base/etc/dconf/db/local.d/

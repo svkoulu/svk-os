@@ -3,6 +3,12 @@
 # DEFAULTS (not locks), so staff can still change them; the student image layers
 # its lockdown/locks on top via its own local.d files.
 
+[org/gnome/desktop/input-sources]
+# Finnish keyboard fleet-wide (school is in Finland). System-level default
+# (vconsole.conf + X11 00-keyboard.conf) covers the console/greeter; this is
+# the GNOME/Wayland-session equivalent.
+sources=[('xkb', 'fi')]
+
 [org/gnome/desktop/interface]
 # Show the day of the week next to the clock (e.g. "Mon 14:03").
 clock-show-weekday=true

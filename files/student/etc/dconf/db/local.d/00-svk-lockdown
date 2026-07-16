@@ -8,7 +8,7 @@
 disable-command-line=true
 disable-user-switching=true
 disable-lock-screen=true
-disable-log-out=true
+disable-log-out=false
 
 [org/gnome/desktop/screensaver]
 lock-enabled=false
@@ -24,3 +24,12 @@ show-in-lock-screen=false
 [org/gnome/desktop/media-handling]
 # Don't auto-run anything off inserted USB media.
 autorun-never=true
+
+[org/gnome/settings-daemon/plugins/color]
+# Night Light off — one less Quick Settings toggle for students to fiddle with.
+night-light-enabled=false
+
+[org/gnome/desktop/interface]
+# Dark Style off — locked below so the Quick Settings toggle can't flip it;
+# keeps every machine looking the same for over-the-shoulder troubleshooting.
+color-scheme='default'

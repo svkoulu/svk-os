@@ -5,13 +5,24 @@
 //
 // polkit evaluates rules files in lexical order; 49- keeps us ahead of most
 // distro defaults while leaving room (50+) for later overrides.
+//
+// Deliberately NOT denied, so the defaults (generally "yes"/"auth_self" for
+// the active local user) apply:
+//   - org.freedesktop.login1.*        -> students must be able to shut down /
+//     restart the laptop from the GNOME power menu.
+//   - org.freedesktop.NetworkManager.* (minus .settings., see below) -> covers
+//     enabling Wi-Fi and connecting to networks.
 
 polkit.addRule(function(action, subject) {
     if (subject.user == "opilas") {
         // Blanket-deny the sensitive action families a kiosk should never allow.
+        // NetworkManager.settings.modify.own is what lets a student save a new
+        // Wi-Fi connection/password, so it is intentionally NOT in this list —
+        // only NM system-settings actions (org.freedesktop.NetworkManager.settings.
+        // *system* — editing/removing OTHER users' or system-wide connections)
+        // would need denying, and those already require auth_admin by default.
         if (action.id.indexOf("org.freedesktop.packagekit.")   == 0 ||
             action.id.indexOf("org.freedesktop.udisks2.")       == 0 ||
-            action.id.indexOf("org.freedesktop.NetworkManager.settings.") == 0 ||
             action.id.indexOf("org.freedesktop.systemd1.")       == 0 ||
             action.id.indexOf("org.rpm-ostree.")                 == 0 ||
             action.id.indexOf("org.freedesktop.hostname1.")      == 0) {

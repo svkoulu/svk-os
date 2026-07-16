@@ -8,11 +8,12 @@ FROM ghcr.io/svkoulu/svk-base:latest
 # Kiosk config tree:
 #   - /etc/gdm/custom.conf            -> autologin to the `opilas` account
 #   - /etc/gdm/PostSession/Default    -> triggers the home reset on logout
-#   - /etc/systemd/system/...         -> reset-opilas-home unit
+#   - /etc/systemd/system/...         -> reset-opilas-home + bluetooth-off units
 #   - /usr/bin/...              -> reset-opilas-home script
 #   - /etc/dconf/...                  -> GNOME lockdown db + locks
-#   - /etc/polkit-1/rules.d/...       -> deny admin actions
+#   - /etc/polkit-1/rules.d/...       -> deny admin actions (shutdown/Wi-Fi stay allowed)
 #   - /etc/svk/tailscale.conf       -> tag:svk-student
+#   - /etc/skel/.config/environment.d/ -> opilas session LANG=fi_FI.UTF-8
 COPY files/student/ /
 
 COPY build.student.sh /tmp/build.sh

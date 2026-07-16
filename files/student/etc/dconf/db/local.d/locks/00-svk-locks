@@ -6,3 +6,5 @@
 /org/gnome/software/allow-updates
 /org/gnome/software/download-updates
 /org/gnome/desktop/media-handling/autorun-never
+/org/gnome/settings-daemon/plugins/color/night-light-enabled
+/org/gnome/desktop/interface/color-scheme
