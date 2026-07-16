@@ -5,7 +5,7 @@
 #   1. Run a pull-through registry cache for ghcr.io (Podman quadlet) so the 19
 #      student laptops don't each drag multi-GB layers over the school network.
 #   2. Hand out fleet hostnames from a pool (socket-activated dispenser).
-#   3. Cockpit for remote admin (already in uCore; we just enable it).
+#   3. Cockpit for remote admin (installed + enabled in build.server.sh).
 #
 # NOTE: the server deliberately does NOT get the ghcr.io->cache mirror drop-in.
 # It must reach the *real* ghcr.io to populate the cache.

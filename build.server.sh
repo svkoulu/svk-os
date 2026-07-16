@@ -35,7 +35,9 @@ if command -v firewall-offline-cmd >/dev/null 2>&1; then
 fi
 
 ### Cockpit ###################################################################
-# Already present in uCore; just make sure the socket comes up on boot.
+# No longer bundled in ghcr.io/ublue-os/ucore:stable — install explicitly
+# before enabling, same as the other layered services above.
+rpm-ostree install cockpit cockpit-podman || true
 systemctl enable cockpit.socket
 
 ### Registry cache ###########################################################
