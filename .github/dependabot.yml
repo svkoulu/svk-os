@@ -1,0 +1,14 @@
+version: 2
+updates:
+  # Workflow files: .github/workflows/*.yml
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+
+  # Composite action: .github/actions/build-image/action.yml (not covered by
+  # the "/" entry above — Dependabot only auto-scans root-level action.yml).
+  - package-ecosystem: "github-actions"
+    directory: "/.github/actions/build-image"
+    schedule:
+      interval: "weekly"
