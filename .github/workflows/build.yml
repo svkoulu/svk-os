@@ -30,8 +30,17 @@ jobs:
   build-base:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: sigstore/cosign-installer@v3
+      - uses: actions/checkout@v7
+      - uses: sigstore/cosign-installer@v4
+        with:
+          # Pin to the Cosign v2 line: v4 of the installer defaults to Cosign
+          # v3, which switched image-signature storage to OCI 1.1 referrers.
+          # Our machines verify via registries.d's `use-sigstore-attachments`
+          # (the old sha256-<digest>.sig tag scheme) — signing with v3's new
+          # default would make signatures invisible to that verifier and block
+          # every machine from pulling updates. Revisit once registries.d /
+          # containers/image support for OCI 1.1 referrer signatures is confirmed.
+          cosign-release: "v2.5.3"
       - uses: ./.github/actions/build-image
         with:
           image: svk-base
@@ -52,8 +61,17 @@ jobs:
       matrix:
         image: [svk-student, svk-staff]
     steps:
-      - uses: actions/checkout@v4
-      - uses: sigstore/cosign-installer@v3
+      - uses: actions/checkout@v7
+      - uses: sigstore/cosign-installer@v4
+        with:
+          # Pin to the Cosign v2 line: v4 of the installer defaults to Cosign
+          # v3, which switched image-signature storage to OCI 1.1 referrers.
+          # Our machines verify via registries.d's `use-sigstore-attachments`
+          # (the old sha256-<digest>.sig tag scheme) — signing with v3's new
+          # default would make signatures invisible to that verifier and block
+          # every machine from pulling updates. Revisit once registries.d /
+          # containers/image support for OCI 1.1 referrer signatures is confirmed.
+          cosign-release: "v2.5.3"
       - uses: ./.github/actions/build-image
         with:
           image: ${{ matrix.image }}
@@ -71,8 +89,17 @@ jobs:
     needs: []
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: sigstore/cosign-installer@v3
+      - uses: actions/checkout@v7
+      - uses: sigstore/cosign-installer@v4
+        with:
+          # Pin to the Cosign v2 line: v4 of the installer defaults to Cosign
+          # v3, which switched image-signature storage to OCI 1.1 referrers.
+          # Our machines verify via registries.d's `use-sigstore-attachments`
+          # (the old sha256-<digest>.sig tag scheme) — signing with v3's new
+          # default would make signatures invisible to that verifier and block
+          # every machine from pulling updates. Revisit once registries.d /
+          # containers/image support for OCI 1.1 referrer signatures is confirmed.
+          cosign-release: "v2.5.3"
       - uses: ./.github/actions/build-image
         with:
           image: svk-server

@@ -41,6 +41,17 @@ jobs:
             echo "run=false" >> "$GITHUB_OUTPUT"
           fi
 
+      # bootc-image-builder needs room to pull the (multi-GB) image AND
+      # materialize a full rootfs + ISO on top of it. Default ubuntu-latest
+      # runners only have ~14GB free once preinstalled toolchains (dotnet,
+      # Android SDK, GHC, CodeQL...) are accounted for — not enough. Strip
+      # those first. Same fix ublue-os/image-template's build-disk.yml uses.
+      - name: Maximize build space
+        if: steps.gate.outputs.run == 'true'
+        uses: ublue-os/remove-unwanted-software@cc0becac701cf642c8f0a6613bbdaf5dc36b259e # v9
+        with:
+          remove-codeql: true
+
       - name: Login to GHCR
         if: steps.gate.outputs.run == 'true'
         run: |
@@ -71,7 +82,7 @@ jobs:
 
       - name: Upload ISO artifact
         if: steps.gate.outputs.run == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.image }}-iso
           # BIB writes the ISO under output/bootiso/install.iso
