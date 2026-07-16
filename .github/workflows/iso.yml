@@ -56,12 +56,16 @@ jobs:
           # bootc-image-builder (BIB) turns a bootc image into installer media.
           # It reads the image from the host's container storage, so pull first.
           sudo podman pull "$IMG"
+          # --rootfs: our images carry no /usr/lib/bootc/install config, so BIB
+          # can't infer a default fs type from the container alone. Bluefin
+          # (what svk-student/svk-staff build FROM) uses btrfs.
           sudo podman run --rm --privileged \
             --security-opt label=type:unconfined_t \
             -v "$(pwd)/output":/output \
             -v /var/lib/containers/storage:/var/lib/containers/storage \
             quay.io/centos-bootc/bootc-image-builder:latest \
             --type iso \
+            --rootfs btrfs \
             --local \
             "$IMG"
 
