@@ -79,6 +79,15 @@ systemctl enable svk-bluetooth-default-off.service
 ### Enable the home-reset unit ################################################
 systemctl enable reset-opilas-home.service
 
+### Lock Wi-Fi to the one baked connection profile ############################
+# The profile itself (if the admin has provisioned the real, gitignored
+# .nmconnection file — see the .example alongside it) needs 0600 root:root;
+# git doesn't reliably preserve that bit across clones/CI checkouts. NM
+# refuses to use a connection file with secrets that's more permissive than
+# that. No-op if the real file hasn't been provisioned yet.
+conn=/etc/NetworkManager/system-connections/svk-student-wifi.nmconnection
+[ -f "$conn" ] && chmod 600 "$conn" && chown root:root "$conn"
+
 ### Reset target logout->reset##################################################
 # The reset itself is driven by GDM PostSession (see files/student). Nothing to
 # enable beyond the service above.

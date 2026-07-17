@@ -7,7 +7,8 @@ that (correctly) can't live in git. See `README.md` for the how-to on each.
 ## 1. Fill in the placeholders (nothing builds until this is done)
 
 Find them all: `grep -rn '<<' . --include=Containerfile.\* --include=\*.sh \
-  --include=\*.yml --include=\*.conf --include=\*.json --include=\*.yaml --include=\*.bu`
+  --include=\*.yml --include=\*.conf --include=\*.json --include=\*.yaml \
+  --include=\*.bu --include=\*.nmconnection\*`
 
 - [x] `<<GHCR_NAMESPACE>>` — GitHub user/org that owns the images. Replace in the
       Containerfiles, `build.yml`, `iso.yml`, `policy.json`, `registries.d/ghcr-svk.yaml`,
@@ -28,6 +29,14 @@ Find them all: `grep -rn '<<' . --include=Containerfile.\* --include=\*.sh \
       install.
 - [x] `<<ADD ... HERE>>` — optional system-package / flatpak / font lists in
       `build.base.sh`, `build.student.sh`, `build.staff.sh`.
+- [ ] `<<STUDENT_WIFI_SSID>>` / `<<STUDENT_WIFI_PSK>>` — the school's Wi-Fi
+      credentials. Copy `files/student/etc/NetworkManager/system-connections/
+      svk-student-wifi.nmconnection.example` to the same path minus
+      `.example` (gitignored — holds a real secret) and fill both in before
+      building `svk-student`. See the README's Wi-Fi lockdown section.
+- [x] `<<NEXTDNS_PROFILE_ID>>` — the school's NextDNS profile/config id
+      (my.nextdns.io → Setup → Router/Other → DNS-over-TLS), in
+      `files/staff/etc/systemd/resolved.conf.d/20-svk-dns.conf`.
 
 ## 2. cosign signing
 
@@ -90,12 +99,32 @@ reached over the LAN instead. Only server/staff/admin get tagged.
 - [ ] Verify the cache: `systemctl status registry.service`, then pull something
       through `svk-server:5000` and confirm it caches.
 - [ ] Verify Cockpit is reachable and Tailscale is up as `tag:svk-admin`.
+- [ ] Verify the Flathub mirror: `systemctl status svk-flathub-sync.service
+      flathub-mirror-serve.service`, then `journalctl -u svk-flathub-sync` for
+      the curated-count summary after the first run (it can take a while — it's
+      pulling real app content, not just appstream metadata).
+- [ ] Verify AdGuard Home: `systemctl status adguard-home.service`, then log
+      into `http://svk-server.local:3000` and **set a real admin password**
+      (the seeded config ships `users: []` — open dashboard until you do this).
 
-## 7. Hostname pool
+## 7. Hostname pool & other admin-editable data-volume lists
 
-- [x] Define the real pool in `/var/lib/svk/hostname-pool` on the server
-      (seeded from `hostname-pool.example` on first run — edit the real file,
-      not the example). Give yourself more names than machines.
+Same pattern for all of these: an `.example` ships in the image, seeded to the
+real (editable, image-rebuild-surviving) file on first run; edit the real file
+directly on the server, not the example.
+
+- [x] Define the real hostname pool in `/var/lib/svk/hostname-pool` (seeded
+      from `hostname-pool.example`). Give yourself more names than machines.
+- [ ] Define the real Flathub curation overrides: `/var/lib/svk/flathub-allowlist`
+      and `/var/lib/svk/flathub-blocklist` (seeded from the `.example` files in
+      `files/server/usr/share/svk/`). Most schools won't need either on day one —
+      the automatic filters (license/verification/sandbox/OARS) are the main
+      mechanism; these are just the escape hatches.
+- [ ] Define the real DHCP scopes for students vs. staff, then replace the
+      placeholder CIDRs in `clients.persistent` in AdGuard Home's config
+      (`http://svk-server.local:3000` → Settings → Client Settings, or edit
+      `AdGuardHome.yaml` on the data volume directly) so per-client filtering
+      differences actually take effect.
 
 ## 8. School specifics to add later
 
@@ -148,3 +177,23 @@ reached over the LAN instead. Only server/staff/admin get tagged.
       shipped policies (and uBlock Origin under `about:addons`) should be active.
       If not, the `/etc/firefox` flatpak override didn't take; check
       `flatpak info --show-permissions org.mozilla.firefox`.
+- [ ] **uBlock Origin managed policy** actually applied: open uBO's dashboard →
+      *Filter lists* and confirm the Social widgets list is checked on a student
+      machine and unchecked on staff (`3rdparty.Extensions` key in
+      `policies.json`). uBO's managed-storage schema has changed shape before
+      (see the comment in `policies.json`) — if the lists aren't reflected,
+      re-check them against `github.com/gorhill/uBlock`'s current wiki.
+- [ ] **Student Wi-Fi lockdown**: confirm a student cannot add a second Wi-Fi
+      network (Quick Settings should offer no "Connect to Network" option that
+      does anything), and that toggling Wi-Fi off in Quick Settings no-ops.
+      Then specifically test **rfkill / airplane mode** — it sometimes bypasses
+      polkit entirely via udev `uaccess` seat tagging, which would let a student
+      drop the connection anyway. If it does, this needs a fix beyond
+      `49-school-lockdown.rules` (e.g. masking the airplane-mode hotkey/action).
+- [ ] **DNS fail-closed on students**: pull a student laptop off the school
+      Wi-Fi's AP (or block it at the router) and confirm name resolution fails
+      rather than silently falling back to an unfiltered upstream. Also check
+      that NetworkManager isn't pushing a DHCP-supplied nameserver into
+      `resolved` ahead of the baked `resolved.conf.d` config (see the comment
+      in `files/student/etc/systemd/resolved.conf.d/20-svk-dns.conf` — the fix
+      would be `ignore-auto-dns=yes` on the baked Wi-Fi profile).

@@ -15,3 +15,8 @@ secrets/*
 # Local ISO / build output.
 output/
 *.iso
+
+# The real student Wi-Fi connection profile holds a plaintext PSK — same
+# secrets-stay-local rule as everything under secrets/. Only the .example
+# template (with placeholder SSID/PSK) is tracked.
+files/student/etc/NetworkManager/system-connections/*.nmconnection

@@ -1,0 +1,64 @@
+{
+  "//": "Firefox Enterprise Policies for STUDENTS. Firefox reads exactly ONE policies.json (no merging across files like flatpaks.list.d), so this is a FULL copy of files/base's policy, not a diff — same pattern as tailscale.conf: base ships a generic default that's never deployed standalone (svk-base itself never boots), each derived image ships its own complete override. Full key reference: https://mozilla.github.io/policy-templates/",
+  "policies": {
+    "DisableTelemetry": true,
+    "DisableFirefoxStudies": true,
+    "DisablePocket": true,
+    "DisableFeedbackCommands": true,
+    "DontCheckDefaultBrowser": true,
+    "OverrideFirstRunPage": "",
+    "OverridePostUpdatePage": "",
+    "UserMessaging": {
+      "WhatsNew": false,
+      "ExtensionRecommendations": false,
+      "FeatureRecommendations": false,
+      "SkipOnboarding": true
+    },
+    "FirefoxHome": {
+      "Search": true,
+      "TopSites": true,
+      "SponsoredTopSites": false,
+      "Pocket": false,
+      "SponsoredPocket": false,
+      "Snippets": false,
+      "Highlights": false
+    },
+    "ExtensionSettings": {
+      "*": {
+        "installation_mode": "allowed"
+      },
+      "uBlock0@raymondhill.net": {
+        "installation_mode": "force_installed",
+        "install_url": "https://addons.mozilla.org/firefox/downloads/latest/ublock-origin/latest.xpi"
+      }
+    },
+    "3rdparty": {
+      "Extensions": {
+        "uBlock0@raymondhill.net": {
+          "//": "EVERY uBO list category, including cosmetic filtering and Social widgets (group2=social in uBO's assets.json: adguard-social, fanboy-social, fanboy-thirdparty_social) — the three lines the staff policy deliberately omits. Keys/structure confirmed against uBO's own wiki (github.com/gorhill/uBlock/wiki/Deploying-uBlock-Origin:-configuration), not the older 'adminSettings' example on Mozilla's policy-templates page.",
+          "userSettings": [
+            ["ignoreGenericCosmeticFilters", "false"]
+          ],
+          "toOverwrite": {
+            "filterLists": [
+              "user-filters",
+              "ublock-filters", "ublock-badware", "ublock-privacy", "ublock-unbreak",
+              "ublock-quick-fixes", "ublock-experimental",
+              "easylist", "easyprivacy",
+              "adguard-generic", "adguard-mobile",
+              "adguard-spyware-url", "block-lan",
+              "urlhaus-1", "curben-phishing",
+              "dpollock-0", "plowe-0",
+              "adguard-cookies", "ublock-cookies-adguard", "fanboy-cookiemonster", "ublock-cookies-easylist",
+              "adguard-popup-overlays", "adguard-mobile-app-banners", "adguard-other-annoyances",
+              "adguard-widgets", "easylist-annoyances", "easylist-chat",
+              "fanboy-ai-suggestions", "easylist-newsletters", "easylist-notifications",
+              "ublock-annoyances",
+              "adguard-social", "fanboy-social", "fanboy-thirdparty_social"
+            ]
+          }
+        }
+      }
+    }
+  }
+}

@@ -7,6 +7,14 @@ set -euo pipefail
 # of these are genuinely missing here. fd-find provides /usr/bin/fd.
 rpm-ostree install htop curl wget ncdu fd-find || true
 
+### Flathub mirror tooling ####################################################
+# svk-flathub-sync.py needs `flatpak` (for build-update-repo, which turns a raw
+# OSTree dump into a real browsable flatpak remote) and python3 (appstream XML
+# parsing). `ostree` itself ships on uCore already — it's the tech the OS is
+# built on. Not baking any of this into a fifth image; see that script's
+# docstring for the reasoning.
+rpm-ostree install flatpak python3 || true
+
 ### Tailscale #################################################################
 # uCore can layer tailscale. Installed only — enrolls at provision time with
 # tag:svk-admin (files/server/etc/svk/tailscale.conf). No key baked in.
@@ -32,6 +40,10 @@ if command -v firewall-offline-cmd >/dev/null 2>&1; then
     firewall-offline-cmd --add-service=mdns        || true
     firewall-offline-cmd --add-port=5000/tcp       || true
     firewall-offline-cmd --add-port=8765/tcp       || true
+    firewall-offline-cmd --add-port=8080/tcp       || true   # flathub-mirror-serve
+    firewall-offline-cmd --add-port=53/tcp         || true   # AdGuard Home DNS
+    firewall-offline-cmd --add-port=53/udp         || true
+    firewall-offline-cmd --add-port=3000/tcp       || true   # AdGuard Home web UI
 fi
 
 ### Cockpit ###################################################################
@@ -49,6 +61,20 @@ systemctl enable cockpit.socket
 ### Hostname dispenser #######################################################
 # Socket-activated; enabling the .socket is enough.
 systemctl enable hostname-dispenser.socket
+
+### Flathub mirror sync timer #################################################
+# The quadlets (flathub-mirror.volume, flathub-mirror-serve.container) start
+# themselves via their own [Install] sections, same as registry.container.
+# The sync .service/.timer are plain systemd units (not quadlet-generated), so
+# they DO need enabling here, same pattern as bootc's own timer below.
+systemctl enable svk-flathub-sync.timer
+
+### AdGuard Home DNS ##########################################################
+# adguard-home.container starts itself via its own [Install] section (same
+# pattern as registry.container / flathub-mirror-serve.container); the seed
+# service that pre-fills its config is a plain systemd unit, so it needs
+# enabling like the sync timer above.
+systemctl enable svk-adguard-seed.service
 
 ### Automatic updates ########################################################
 # uCore doesn't auto-update by default. Drive OS updates through bootc's own

@@ -1,0 +1,18 @@
+# Oneshot: refresh the curated Flathub mirror. Triggered by
+# svk-flathub-sync.timer (daily); see svk-flathub-sync.py for the actual logic.
+[Unit]
+Description=Sync curated Flathub mirror
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/svk-flathub-sync.py
+# Nightly job on a box that's also serving the registry cache and dispenser
+# during the day — stay out of their way if it ever overlaps.
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+
+[Install]
+WantedBy=multi-user.target

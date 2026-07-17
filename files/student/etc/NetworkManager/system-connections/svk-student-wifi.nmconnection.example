@@ -1,0 +1,42 @@
+# Baked system Wi-Fi connection — the ONLY network a student laptop can ever
+# join. autoconnect + root-owned; opilas cannot add a second profile because
+# 49-school-lockdown.rules denies `opilas` all NetworkManager.settings.*
+# actions (see that file), so this profile has no competition.
+#
+# THIS IS A TEMPLATE, not the real file: it holds the school's Wi-Fi SSID and
+# PSK, which are real secrets and must NOT be committed to git (same reasoning
+# as secrets/ — see secrets/README.md and .gitignore).
+#
+# To provision:
+#   cp files/student/etc/NetworkManager/system-connections/svk-student-wifi.nmconnection.example \
+#      files/student/etc/NetworkManager/system-connections/svk-student-wifi.nmconnection
+#   # then fill in <<STUDENT_WIFI_SSID>> and <<STUDENT_WIFI_PSK>> below.
+# The real file is gitignored (*.nmconnection, keeping this *.example
+# tracked) and must be present locally before building svk-student.
+#
+# NetworkManager requires connection files holding secrets to be 0600,
+# root:root — build.student.sh chmods it because git doesn't preserve that
+# permission bit reliably across clones/CI checkouts.
+[connection]
+id=svk-student-wifi
+uuid=08d292e2-5cb3-457f-a1d0-2056231e400f
+type=wifi
+autoconnect=true
+permissions=
+
+[wifi]
+mode=infrastructure
+ssid=<<STUDENT_WIFI_SSID>>
+
+[wifi-security]
+key-mgmt=wpa-psk
+psk=<<STUDENT_WIFI_PSK>>
+
+[ipv4]
+method=auto
+
+[ipv6]
+method=auto
+addr-gen-mode=default
+
+[proxy]

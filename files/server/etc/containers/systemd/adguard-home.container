@@ -1,0 +1,26 @@
+# Podman quadlet: AdGuard Home — caching resolver + self-hosted blocklists +
+# per-client (student/staff) config in one process.
+#
+# svk-adguard-seed.service (ordered before the generated adguard-home.service
+# via Requires=/After= below) pre-fills AdGuardHome.yaml so this starts
+# already-configured, no install-wizard interaction needed.
+
+[Unit]
+Description=AdGuard Home (DNS caching + blocklists)
+Requires=svk-adguard-seed.service
+After=svk-adguard-seed.service network-online.target
+Wants=network-online.target
+
+[Container]
+Image=docker.io/adguard/adguardhome:latest
+ContainerName=adguard-home
+PublishPort=53:53/udp
+PublishPort=53:53/tcp
+PublishPort=3000:3000/tcp
+Volume=adguard-home.volume:/opt/adguardhome:Z
+
+[Service]
+Restart=always
+
+[Install]
+WantedBy=multi-user.target default.target

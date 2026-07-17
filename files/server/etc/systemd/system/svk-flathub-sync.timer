@@ -1,0 +1,12 @@
+# Daily refresh, jittered like the other fleet timers (10-svk-randomize.conf
+# drop-ins) so it doesn't land on the dot for every deployment of this repo.
+[Unit]
+Description=Daily curated Flathub mirror sync
+
+[Timer]
+OnCalendar=*-*-* 04:00:00
+RandomizedDelaySec=2h
+Persistent=true
+
+[Install]
+WantedBy=timers.target

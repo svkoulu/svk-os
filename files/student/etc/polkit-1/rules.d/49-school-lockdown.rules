@@ -10,22 +10,27 @@
 // the active local user) apply:
 //   - org.freedesktop.login1.*        -> students must be able to shut down /
 //     restart the laptop from the GNOME power menu.
-//   - org.freedesktop.NetworkManager.* (minus .settings., see below) -> covers
-//     enabling Wi-Fi and connecting to networks.
+//
+// NetworkManager.settings.* IS now denied (below): the machine is locked to
+// exactly one baked Wi-Fi profile (files/student/etc/NetworkManager/
+// system-connections/svk-student-wifi.nmconnection), so opilas must not be
+// able to add, edit, or remove connection profiles — there should never be a
+// second network to join. The enable/disable actions are denied too so the
+// Quick Settings Wi-Fi toggle / "Disconnect" no-ops instead of dropping the
+// one connection that exists.
 
 polkit.addRule(function(action, subject) {
     if (subject.user == "opilas") {
         // Blanket-deny the sensitive action families a kiosk should never allow.
-        // NetworkManager.settings.modify.own is what lets a student save a new
-        // Wi-Fi connection/password, so it is intentionally NOT in this list —
-        // only NM system-settings actions (org.freedesktop.NetworkManager.settings.
-        // *system* — editing/removing OTHER users' or system-wide connections)
-        // would need denying, and those already require auth_admin by default.
         if (action.id.indexOf("org.freedesktop.packagekit.")   == 0 ||
             action.id.indexOf("org.freedesktop.udisks2.")       == 0 ||
             action.id.indexOf("org.freedesktop.systemd1.")       == 0 ||
             action.id.indexOf("org.rpm-ostree.")                 == 0 ||
-            action.id.indexOf("org.freedesktop.hostname1.")      == 0) {
+            action.id.indexOf("org.freedesktop.hostname1.")      == 0 ||
+            action.id.indexOf("org.freedesktop.NetworkManager.settings.") == 0 ||
+            action.id == "org.freedesktop.NetworkManager.enable-disable-wifi" ||
+            action.id == "org.freedesktop.NetworkManager.enable-disable-network" ||
+            action.id == "org.freedesktop.NetworkManager.network-control") {
             return polkit.Result.NO;
         }
     }

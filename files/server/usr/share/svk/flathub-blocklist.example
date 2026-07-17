@@ -1,0 +1,9 @@
+# Flathub curation BLOCKLIST — force-exclude an app id even if it passes every
+# automatic filter in svk-flathub-sync.py. Same shape as flathub-allowlist.example
+# (and /etc/svk/flatpaks.list): one app id per line, '#' comments, blank lines
+# ignored.
+#
+# Seeded to /var/lib/svk/flathub-blocklist on first run; edit the real file on
+# the server, not this one.
+#
+# org.example.UnwantedApp

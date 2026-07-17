@@ -13,7 +13,8 @@ ghcr.io/ublue-os/bluefin:stable
         └── svk-staff     # normal desktop, --user flatpaks
 
 ghcr.io/ublue-os/ucore:stable
-  └── svk-server     # pull-through registry cache + hostname dispenser (independent, provisioned via Ignition/Butane, not bootc switch)
+  └── svk-server     # pull-through registry cache + hostname dispenser + curated Flathub
+                     # mirror + AdGuard Home DNS (independent, provisioned via Ignition/Butane, not bootc switch)
 ```
 
 Raw `Containerfile`s (ublue `image-template` lineage), not BlueBuild — this is the one thing that lets a single workflow build both the Bluefin desktops and the uCore server.

@@ -138,6 +138,113 @@ NVMe at `/var/mnt/registry-cache`).
 
 ---
 
+## Curated Flathub mirror
+
+Same idea as the ghcr.io cache, one layer up: `svk-flathub-sync.py` runs daily
+on the server (`svk-flathub-sync.timer`) and mirrors a **curated subset** of
+Flathub — not the whole catalog (impractical size, and staff self-serve still
+needs vetting) — into a local OSTree repo, served over HTTP by
+`flathub-mirror-serve.container` (nginx) on `:8080`.
+
+**Curation** (all must pass, from Flathub's own `appstream2/x86_64` branch):
+FOSS license only, Flathub verified-developer flag
+(`flathub::verification::verified` in the appstream custom metadata), no
+broad sandbox permissions (`filesystem=host`, `socket=session-bus`/`system-bus`,
+`device=all` — checked straight from each candidate ref's own `/metadata` file
+via a partial `ostree pull --subpath`), and a clean OARS content rating (no
+`violence-*`/`sex-*` category above `none`). Two admin-editable overrides on the
+data volume — `/var/lib/svk/flathub-allowlist` and `-blocklist` (seeded from
+`.example` files in `files/server/usr/share/svk/`, same pattern as
+`hostname-pool.example`) — force-include or force-exclude specific app ids;
+blocklist wins on conflict, and the sync script warns loudly if an id is on both.
+
+**Trust**: the mirror re-serves Flathub's own commits (and their original
+signatures) verbatim, so both the server's local OSTree repo and the client's
+flatpak remote trust **Flathub's own signing key**, extracted fresh from their
+published `flathub.flatpakrepo` at sync/first-boot time rather than hand-copied
+into this repo (a future key rotation is picked up automatically instead of
+silently breaking).
+
+**Client side**: `svk-flatpak-preinstall.sh` (base, every machine) adds the
+mirror as a second flatpak remote at **higher priority** (`--prio=2`) than the
+real `flathub` remote. Any ref the mirror doesn't have falls through to real
+Flathub automatically — this is a speed-up, never a restriction. Staff can
+browse the curated catalog in GNOME Software; students stay locked to the
+fixed `/etc/svk/flatpaks.list` set regardless (their existing
+`org/gnome/software allow-updates=false` dconf lock already blocks
+install/update from Software).
+
+---
+
+## DNS: AdGuard Home
+
+`adguard-home.container` (Podman quadlet on the server) is the fleet's caching
+resolver + blocklist filter + per-client config, all in one process. Config is
+pre-seeded (`svk-adguard-seed.service` → `adguardhome.yaml.example`) so it
+starts already-configured — no install-wizard interaction. **Log into
+`http://svk-server.local:3000` and set a real admin password on first boot**
+(the seeded config ships `users: []`, i.e. an open dashboard, since campus
+network + Tailscale already gate who can reach it).
+
+Blocklists are **self-hosted primary** — AdGuard Home downloads and applies
+them itself, so filtering keeps working on campus even if some cloud API is
+having a bad day. Client resolver config (`resolved.conf.d`, per image) then
+decides what happens off-campus:
+
+| Image | `resolved.conf.d` | Behavior |
+|---|---|---|
+| student | `DNS=svk-server.local` only, `DNSOverTLS=no` | Fail-closed — correct for a kiosk that never leaves campus. |
+| staff | `DNS=svk-server.local <NextDNS DoT endpoint>`, `DNSOverTLS=opportunistic` | Local cache + self-hosted lists on-LAN; automatic fallback to NextDNS once off-site. |
+
+Fill in `<<NEXTDNS_PROFILE_ID>>` in `files/staff/etc/systemd/resolved.conf.d/20-svk-dns.conf`
+(my.nextdns.io → Setup → Router/Other → DNS-over-TLS gives you the profile id
+that goes into both `dns1.nextdns.io`/`dns2.nextdns.io` hostnames there).
+
+Per-client (student vs. staff) filtering differences live in AdGuard Home's own
+`clients.persistent` list (`adguardhome.yaml.example`) — currently placeholder
+CIDRs, since the real DHCP scopes don't exist yet; see `TODO.md`.
+
+---
+
+## Student Wi-Fi lockdown
+
+Exactly **one** Wi-Fi connection is baked into
+`files/student/etc/NetworkManager/system-connections/svk-student-wifi.nmconnection`
+— the school's SSID, autoconnect, root-owned. `49-school-lockdown.rules`
+denies `opilas` all `NetworkManager.settings.*` actions (so no second profile
+can ever be added) plus the Wi-Fi enable/disable and network-control actions
+(so the Quick Settings toggle / "Disconnect" no-ops instead of dropping the
+one connection that exists).
+
+The real `.nmconnection` file holds the school's actual Wi-Fi password, so
+it's **gitignored** like everything under `secrets/` — only the `.example`
+template is tracked. Copy it and fill in `<<STUDENT_WIFI_SSID>>` /
+`<<STUDENT_WIFI_PSK>>` before building `svk-student` (see `TODO.md`).
+
+**Open hardware question**: rfkill / "airplane mode" sometimes bypasses polkit
+entirely via udev `uaccess` seat tagging — verify on real student hardware
+once the first laptop is provisioned (see `TODO.md` §11-style items).
+
+---
+
+## uBlock Origin managed policy
+
+Firefox reads exactly **one** `policies.json` (no merging like
+`flatpaks.list.d`), so `files/student` and `files/staff` each ship a **full**
+override of `files/base`'s policy — same pattern as `tailscale.conf` (base
+ships a generic default that's never deployed standalone, since `svk-base`
+itself never boots). The `3rdparty.Extensions["uBlock0@raymondhill.net"]` key
+configures uBO's managed storage (`toOverwrite.filterLists`, `userSettings`) —
+schema and filter-list tokens confirmed against uBO's own wiki and
+`assets.json`, not the (older/stale) example on Mozilla's policy-templates page.
+
+Students get **every** uBO list category, including cosmetic filtering
+(`ignoreGenericCosmeticFilters=false`, explicit) and the Social widgets list
+(`adguard-social`, `fanboy-social`, `fanboy-thirdparty_social`). Staff get
+every category **except** Social.
+
+---
+
 ## Provisioning machines onto an image
 
 Install once from an ISO (see [ISOs](#building-installer-isos)) or any bootc
