@@ -434,9 +434,15 @@ Two ISOs confirmed; the spec's "two precisely-scoped images" reasoning is unchan
 ## Suggested execution order (checklist)
 
 1. Phase 0 branch + archive + scaffold, one commit.
-2. `Containerfile.base` + `build/00,10,20,30,40` + `clean-stage.sh` (incl.
-   exclude-RPM-firefox; flatpaks **not** in the image — they're ISO-baked); D1/D2
-   defaults applied; local build to green `--fatal-warnings` lint.
+2. ✅ **DONE 2026-07-17.** `Containerfile.base` (scratch `ctx` → silverblue:44
+   pinned `sha256:b21b78d6…`) + `build/00-image-info,10-packages,20-services,
+   30-users,40-desktop` + `clean-stage`; excludes RPM firefox; flatpaks NOT in the
+   image (ISO-baked). Local build **green `--fatal-warnings` (13 checks)**, verified
+   image. Two lint/verify fixes: admin → `sysusers.d/svk-admin.conf` (not
+   `/etc/passwd`); branding script → upsert os-release fields (finpilot's guard
+   no-ops on Silverblue). Note: nss-mdns wires mDNS via its own authselect
+   integration, so the manual nsswitch sed is a harmless no-op. D-style: static tree
+   stays `files/base/`; `archived/` kept as reference (copied out, not moved).
 3. Phase 2 student/staff adapted; both build `FROM` the local `svk-base`. D5
    malcontent spike here (touches student strip logic).
 4. Phase 3 server verify build.

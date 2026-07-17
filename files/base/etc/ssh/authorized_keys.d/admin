@@ -1,0 +1,14 @@
+# Authorized keys for the local `admin` operator account on every fleet device.
+# Lives in /etc (persisted by bootc) rather than /var/home/admin/.ssh, which is
+# runtime state that image builds don't capture. sshd is pointed here by
+# /etc/ssh/sshd_config.d/10-school-hardening.conf (AuthorizedKeysFile ... %u).
+#
+# Two keys, two purposes:
+#   1. svk-admin      — the human IT admin, SSHing in from the local network.
+#   2. svk-server     — lets the cache/dispenser server SSH *into* this machine
+#                       (the jump-host fan-out to LAN-only student/staff devices).
+
+# svk-admin operator (human)
+ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGJ2H0Oi7CwM749rOyjHEnqVHgWHAaEsNVTaJW9Qq0gV svk-admin
+# svk-server (jump host -> staff/student devices)
+ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMIYMAniqKattKYLGpCbAJzP8zYYlDpT//HOWV2+O589 svk-server

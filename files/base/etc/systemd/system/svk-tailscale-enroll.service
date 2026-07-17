@@ -1,0 +1,21 @@
+# First-boot Tailscale enrollment from the provisioning USB. Enabled in
+# build.base.sh for ALL desktops; it no-ops where TAILSCALE_ENROLL=no
+# (students), so the mechanism can live in the base image. Guarded by a stamp,
+# NOT ConditionFirstBoot, so a failed enrollment retries on the next boot.
+#
+# Deliberately has no Wants/Requires on tailscaled: on students tailscaled is
+# disabled and we must not pull it back in. After= is ordering-only; the script
+# starts tailscaled itself on the staff path.
+[Unit]
+Description=svk: enroll into Tailscale from the provisioning USB (first boot)
+After=network-online.target tailscaled.service
+Wants=network-online.target
+ConditionPathExists=!/var/lib/svk/.tailscale-enrolled
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/svk-tailscale-enroll.sh
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,9 @@
+# Shared fleet flatpaks — baked into BOTH student and staff ISOs by Titanoboa.
+# Per-flavor extras go in flatpaks/student.list / flatpaks/staff.list.
+org.mozilla.firefox
+org.libreoffice.LibreOffice
+org.videolan.VLC
+org.gimp.GIMP
+org.gnome.gitlab.YaLTeR.VideoTrimmer
+org.openshot.OpenShot
+no.mifi.losslesscut

@@ -1,0 +1,7 @@
+# Tell Podman/skopeo/bootc that signatures for our images are stored as sigstore
+# attachments alongside the image in the registry (that's how `cosign sign`
+# publishes them), rather than in a separate signature store. Required for the
+# sigstoreSigned rule in policy.json to actually find the signatures.
+docker:
+  ghcr.io/svkoulu:
+    use-sigstore-attachments: true

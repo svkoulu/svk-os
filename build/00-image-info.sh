@@ -19,7 +19,7 @@ set -euo pipefail
 ###############################################################################
 
 # Branding — customize these for your image
-IMAGE_PRETTY_NAME="${IMAGE_PRETTY_NAME:-My Custom OS}"
+IMAGE_PRETTY_NAME="${IMAGE_PRETTY_NAME:-SVK OS}"
 IMAGE_LIKE="${IMAGE_LIKE:-fedora}"
 HOME_URL="${HOME_URL:-https://github.com/${IMAGE_VENDOR}/${IMAGE_NAME}}"
 DOCUMENTATION_URL="${DOCUMENTATION_URL:-https://github.com/${IMAGE_VENDOR}/${IMAGE_NAME}/blob/main/README.md}"
@@ -64,30 +64,30 @@ echo "  image-vendor: ${IMAGE_VENDOR}"
 ###############################################################################
 # Customize /usr/lib/os-release
 ###############################################################################
-# Only modify if the file exists and VARIANT_ID is not already set
-if [[ -f "${OS_RELEASE}" ]] && ! grep -q "^VARIANT_ID=" "${OS_RELEASE}"; then
-	# Read existing values
-	if [[ -n "${VERSION:-}" ]]; then
-		OS_VERSION="${VERSION}"
-	else
-		OS_VERSION="${UBLUE_IMAGE_TAG}"
-	fi
+# The Silverblue base already sets VARIANT_ID / PRETTY_NAME / NAME, so we UPSERT
+# svk's identity (replace the key if present, append if not) rather than the
+# finpilot original's append-only-if-VARIANT_ID-absent (which no-ops on Silverblue).
+if [[ -f "${OS_RELEASE}" ]]; then
+	OS_VERSION="${VERSION:-${UBLUE_IMAGE_TAG}}"
 
-	# Append our identity
-	cat >>"${OS_RELEASE}" <<EOF
+	set_os_release() {
+		local key="$1" val="$2"
+		if grep -q "^${key}=" "${OS_RELEASE}"; then
+			sed -i "s|^${key}=.*|${key}=\"${val}\"|" "${OS_RELEASE}"
+		else
+			printf '%s="%s"\n' "${key}" "${val}" >>"${OS_RELEASE}"
+		fi
+	}
 
-# ${IMAGE_NAME} image identity
-VARIANT_ID="${IMAGE_FLAVOR}"
-PRETTY_NAME="${IMAGE_PRETTY_NAME}"
-NAME="${IMAGE_NAME}"
-IMAGE_ID="${IMAGE_NAME}"
-IMAGE_VERSION="${OS_VERSION}"
-ID_LIKE="${IMAGE_LIKE}"
-HOME_URL="${HOME_URL}"
-DOCUMENTATION_URL="${DOCUMENTATION_URL}"
-SUPPORT_URL="${SUPPORT_URL}"
-BUG_REPORT_URL="${BUG_REPORT_URL}"
-EOF
+	set_os_release PRETTY_NAME       "${IMAGE_PRETTY_NAME}"
+	set_os_release NAME              "${IMAGE_NAME}"
+	set_os_release VARIANT_ID        "${IMAGE_FLAVOR}"
+	set_os_release IMAGE_ID          "${IMAGE_NAME}"
+	set_os_release IMAGE_VERSION     "${OS_VERSION}"
+	set_os_release HOME_URL          "${HOME_URL}"
+	set_os_release DOCUMENTATION_URL "${DOCUMENTATION_URL}"
+	set_os_release SUPPORT_URL       "${SUPPORT_URL}"
+	set_os_release BUG_REPORT_URL    "${BUG_REPORT_URL}"
 
 	echo "Customized ${OS_RELEASE}"
 fi

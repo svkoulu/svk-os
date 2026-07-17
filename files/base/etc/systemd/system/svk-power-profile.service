@@ -1,0 +1,14 @@
+# Sets the power profile to match the AC/battery state. Enabled in build.base.sh
+# so it runs once at boot (initial state); the udev rule
+# (99-svk-power-profile.rules) starts it again on every AC plug/unplug.
+[Unit]
+Description=svk: match power profile to AC/battery state
+After=power-profiles-daemon.service
+Wants=power-profiles-daemon.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/svk-power-profile.sh
+
+[Install]
+WantedBy=multi-user.target

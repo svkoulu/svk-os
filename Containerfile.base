@@ -1,0 +1,69 @@
+# svk-base — the common layer every desktop machine in the fleet builds FROM.
+#
+# Built the MODULAR way: a raw Fedora Silverblue OSTree base + svk's own config,
+# NOT `FROM ghcr.io/ublue-os/bluefin` (see tasks/todo/…-modular-base-rebuild-*).
+# Because this is a custom image the base is pinned by digest and does NOT inherit
+# upstream updates automatically — the weekly CI rebuild + Renovate digest bumps
+# are what pull in new kernels / security fixes.
+
+# --- ctx: gather build-time-only inputs (scripts, custom/) into a scratch stage
+#     so they're bind-mounted during RUN and never ship as layers. ---
+FROM scratch AS ctx
+COPY build /build
+COPY custom /custom
+
+# --- base: raw Fedora Silverblue, pinned by digest (Renovate keeps it current). ---
+FROM quay.io/fedora-ostree-desktops/silverblue:44@sha256:b21b78d67bdba02aa551bebbb2f67278cb2f72a3c87f43148a25f3dd325bc663
+
+# Image identity — makes bootc / fastfetch / ublue tooling report svk, not Fedora.
+ARG IMAGE_NAME="svk-base"
+ARG IMAGE_VENDOR="svkoulu"
+ARG UBLUE_IMAGE_TAG="stable"
+ARG BASE_IMAGE_NAME="silverblue"
+ARG FEDORA_MAJOR_VERSION="44"
+ARG VERSION=""
+
+# svk static config tree -> "/" (ships in the image): ghcr mirror, cosign policy,
+# admin SSH, dconf defaults, firefox/uBO policy, mDNS, hostname-claim, power, certs.
+COPY files/base/ /
+# Our image-signing public key, enforced by /etc/containers/policy.json so machines
+# only accept svk images signed with this repo's key.
+COPY cosign.pub /etc/pki/containers/svk-cosign.pub
+
+# Branding first (writes /usr/lib/os-release + image-info.json).
+RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
+    --mount=type=tmpfs,dst=/boot \
+    --mount=type=tmpfs,dst=/tmp \
+    /ctx/build/00-image-info.sh
+
+# dnf options for the build (persist across the RUN layers below).
+RUN dnf5 config-manager setopt keepcache=1 install_weak_deps=0
+
+# Packages (needs network + the dnf cache).
+RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
+    --mount=type=cache,dst=/var/cache/libdnf5 \
+    --mount=type=tmpfs,dst=/boot \
+    --mount=type=tmpfs,dst=/tmp \
+    /ctx/build/10-packages.sh
+
+# System config: services + mDNS, the admin account, desktop lockdown (no network).
+RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
+    --mount=type=tmpfs,dst=/boot \
+    --mount=type=tmpfs,dst=/tmp \
+    /ctx/build/20-services.sh \
+ && /ctx/build/30-users.sh \
+ && /ctx/build/40-desktop.sh
+
+# Remove build artifacts before linting (Bluefin's clean-stage.sh).
+RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
+    --mount=type=tmpfs,dst=/tmp \
+    --mount=type=tmpfs,dst=/boot \
+    /ctx/build/clean-stage.sh
+
+# /opt -> /var/opt (writeable); keeps the main image strict.
+RUN rm -rf /opt && ln -s /var/opt /opt
+
+CMD ["/sbin/init"]
+
+# Final sanity gate — a broken image fails the build instead of shipping.
+RUN bootc container lint --fatal-warnings
