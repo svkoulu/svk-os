@@ -416,6 +416,51 @@ build an installer ISO from the Actions tab → **iso** → *Run workflow* (pick
 [`bootc-image-builder`](https://github.com/osbuild/bootc-image-builder) and
 uploads the `.iso` as a workflow artifact.
 
+### Building an ISO locally
+
+No packages to install beyond podman — `bootc-image-builder` (BIB) runs as a
+container itself. Two things trip this up that CI doesn't hit:
+
+- **BIB needs root.** It runs `--privileged` and mounts podman's storage
+  directly, so the image has to live in **root's** podman storage
+  (`/var/lib/containers/storage`), not your rootless user storage. Build or
+  pull with `sudo podman`, not plain `podman`.
+- **If you're driving podman through a proxy** (e.g. a distrobox/toolbox dev
+  container where `podman` forwards to the host), run this from a real host
+  shell instead. `sudo` needs an interactive password prompt that a proxied
+  command won't carry through.
+- On an SELinux host (e.g. Fedora/Aeon-family), keep
+  `--security-opt label=type:unconfined_t` — without it BIB can't access the
+  mounted storage. Drop it on non-SELinux hosts.
+- BIB needs real headroom to pull the image and materialize a rootfs + ISO on
+  top of it — CI strips preinstalled tooling from its runner because the
+  default ~14GB free isn't enough. Check `df -h` first if you're tight on
+  space.
+
+```bash
+# 1. Get the image into ROOT's podman storage (BIB mounts /var/lib/containers/storage)
+sudo podman build -f Containerfile.base  -t svk-base  .
+sudo podman build -f Containerfile.staff -t svk-staff .
+# or test what's already published instead of building locally:
+# sudo podman pull ghcr.io/svkoulu/svk-staff:latest
+
+# 2. Build the ISO
+mkdir -p output
+sudo podman run --rm --privileged \
+  --security-opt label=type:unconfined_t \
+  -v "$(pwd)/output":/output \
+  -v /var/lib/containers/storage:/var/lib/containers/storage \
+  quay.io/centos-bootc/bootc-image-builder:latest \
+  --type iso \
+  --rootfs btrfs \
+  --local \
+  localhost/svk-staff   # or ghcr.io/svkoulu/svk-staff:latest if you pulled instead
+```
+
+ISO lands at `output/bootiso/install.iso`. Swap `svk-staff` for `svk-student`
+(rebuild `svk-base` first — both depend on it; see *Build strategy* in
+`CLAUDE.md`).
+
 ## uCore / Ignition caveat (server only)
 
 The server uses a **different provisioning model** from the desktops. uCore is
