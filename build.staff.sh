@@ -1,0 +1,13 @@
+#!/usr/bin/bash
+# build.staff.sh — staff desktop. Almost nothing on top of svk-base: normal login,
+# no kiosk, no skel reset.
+#
+# On the raw Silverblue base there is no Distrobox/Homebrew to strip (unlike the
+# old `FROM bluefin` build), so this is effectively a no-op today — kept as the
+# hook for any future staff-only build step. Staff accounts are created by
+# gnome-initial-setup on first boot; staff install their own apps with
+# `flatpak install --user` (persists across image updates), and the shared fleet
+# apps are baked into the staff ISO by Titanoboa.
+set -euo pipefail
+
+: # nothing to do yet

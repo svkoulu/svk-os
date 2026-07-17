@@ -1,0 +1,9 @@
+#!/bin/sh
+# GDM runs this as root when a session ends, before the next login. We use it to
+# fire the home reset synchronously (blocking) so /home/opilas is pristine
+# again before autologin brings opilas straight back in.
+#
+# `systemctl start` (no --no-block) waits for the oneshot to finish. Errors are
+# swallowed so a reset hiccup can never wedge GDM's logout path.
+systemctl start reset-opilas-home.service || true
+exit 0

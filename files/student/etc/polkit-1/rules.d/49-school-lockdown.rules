@@ -1,0 +1,37 @@
+// Kiosk polkit lockdown. Deny the `student` account any privileged action:
+// no package installs, no mount/format of disks, no changing system settings,
+// no color-manager prompts, etc. Staff/admin accounts are unaffected because
+// they authenticate as a different user over Tailscale/SSH or on staff images.
+//
+// polkit evaluates rules files in lexical order; 49- keeps us ahead of most
+// distro defaults while leaving room (50+) for later overrides.
+//
+// Deliberately NOT denied, so the defaults (generally "yes"/"auth_self" for
+// the active local user) apply:
+//   - org.freedesktop.login1.*        -> students must be able to shut down /
+//     restart the laptop from the GNOME power menu.
+//
+// NetworkManager.settings.* IS now denied (below): the machine is locked to
+// exactly one baked Wi-Fi profile (files/student/etc/NetworkManager/
+// system-connections/svk-student-wifi.nmconnection), so opilas must not be
+// able to add, edit, or remove connection profiles — there should never be a
+// second network to join. The enable/disable actions are denied too so the
+// Quick Settings Wi-Fi toggle / "Disconnect" no-ops instead of dropping the
+// one connection that exists.
+
+polkit.addRule(function(action, subject) {
+    if (subject.user == "opilas") {
+        // Blanket-deny the sensitive action families a kiosk should never allow.
+        if (action.id.indexOf("org.freedesktop.packagekit.")   == 0 ||
+            action.id.indexOf("org.freedesktop.udisks2.")       == 0 ||
+            action.id.indexOf("org.freedesktop.systemd1.")       == 0 ||
+            action.id.indexOf("org.rpm-ostree.")                 == 0 ||
+            action.id.indexOf("org.freedesktop.hostname1.")      == 0 ||
+            action.id.indexOf("org.freedesktop.NetworkManager.settings.") == 0 ||
+            action.id == "org.freedesktop.NetworkManager.enable-disable-wifi" ||
+            action.id == "org.freedesktop.NetworkManager.enable-disable-network" ||
+            action.id == "org.freedesktop.NetworkManager.network-control") {
+            return polkit.Result.NO;
+        }
+    }
+});

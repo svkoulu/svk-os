@@ -1,0 +1,22 @@
+# svk-staff — normal desktop for the staff laptops.
+#
+# Built FROM svk-base (CI: build-staff needs build-base). No kiosk lockdown, no
+# skel reset, normal login. Staff install their own apps as Flatpak `--user`; the
+# shared fleet apps are baked into the staff ISO by Titanoboa.
+#
+# BASE_IMAGE is overridable for local builds before svk-base is pushed:
+#   podman build -f Containerfile.staff \
+#     --build-arg BASE_IMAGE=localhost/svk-base:latest -t svk-staff .
+ARG BASE_IMAGE=ghcr.io/svkoulu/svk-base:latest
+FROM ${BASE_IMAGE}
+
+# Staff config tree:
+#   - etc/svk/tailscale.conf              -> tag:svk-staff, ENROLL=yes
+#   - etc/systemd/resolved.conf.d/        -> staff DNS (local + NextDNS fallback)
+#   - etc/firefox/policies/policies.json  -> staff uBO managed policy (no Social list)
+COPY files/staff/ /
+
+COPY build.staff.sh /tmp/build.staff.sh
+RUN bash /tmp/build.staff.sh && rm -f /tmp/build.staff.sh
+
+RUN bootc container lint --fatal-warnings

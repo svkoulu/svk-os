@@ -1,0 +1,48 @@
+# svk-student — locked-down kiosk image for the student laptops.
+#
+# Built FROM the freshly-pushed svk-base (CI: build-student needs build-base), so
+# it inherits Tailscale, the ghcr mirror, admin SSH, mDNS and the cosign policy,
+# and only adds the kiosk lockdown on top.
+#
+# BASE_IMAGE is overridable for local builds before svk-base is pushed:
+#   podman build -f Containerfile.student \
+#     --build-arg BASE_IMAGE=localhost/svk-base:latest -t svk-student .
+ARG BASE_IMAGE=ghcr.io/svkoulu/svk-base:latest
+
+# ctx: bind-mount build/ (for clean-stage.sh) without shipping it as a layer.
+FROM scratch AS ctx
+COPY build /build
+
+FROM ${BASE_IMAGE}
+
+# Kiosk config tree:
+#   - usr/lib/sysusers.d/svk-opilas.conf -> the autologin opilas account
+#   - etc/gdm/custom.conf                -> autologin to opilas
+#   - etc/gdm/PostSession/Default        -> triggers the home reset on logout
+#   - etc/systemd/system/...             -> reset-opilas-home + bluetooth-off units
+#   - usr/bin/reset-opilas-home.sh       -> home reset script
+#   - etc/dconf/...                      -> GNOME lockdown db + locks
+#   - etc/polkit-1/rules.d/...           -> deny admin actions (shutdown/Wi-Fi stay allowed)
+#   - etc/NetworkManager/...             -> the one baked Wi-Fi profile (.example template)
+#   - etc/svk/tailscale.conf             -> tag:svk-student, ENROLL=no
+#   - etc/skel/.config/environment.d/    -> opilas session LANG=fi_FI.UTF-8
+COPY files/student/ /
+
+# Build script: COPY in, run, remove (a host-context bind mount hits SELinux label
+# denials; the small script leaves no secrets in the intermediate layer).
+COPY build.student.sh /tmp/build.student.sh
+# Cache-mount the dnf cache (like svk-base) so build.student.sh's `dnf5 remove`
+# writes to the ephemeral cache, not the image layer — otherwise /var/cache/libdnf5
+# ships with content and trips the lint's var-tmpfiles check.
+RUN --mount=type=cache,dst=/var/cache/libdnf5 \
+    bash /tmp/build.student.sh && rm -f /tmp/build.student.sh
+
+# The dnf5 remove in build.student.sh dirties /var, /run, /tmp; clean-stage.sh
+# removes those so `bootc container lint --fatal-warnings` passes (same script
+# svk-base uses; bind-mounted so it isn't shadowed by the tmpfs /tmp).
+RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
+    --mount=type=tmpfs,dst=/tmp \
+    --mount=type=tmpfs,dst=/boot \
+    /ctx/build/clean-stage.sh
+
+RUN bootc container lint --fatal-warnings

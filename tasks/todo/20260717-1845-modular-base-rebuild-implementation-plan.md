@@ -443,8 +443,20 @@ Two ISOs confirmed; the spec's "two precisely-scoped images" reasoning is unchan
    no-ops on Silverblue). Note: nss-mdns wires mDNS via its own authselect
    integration, so the manual nsswitch sed is a harmless no-op. D-style: static tree
    stays `files/base/`; `archived/` kept as reference (copied out, not moved).
-3. Phase 2 student/staff adapted; both build `FROM` the local `svk-base`. D5
-   malcontent spike here (touches student strip logic).
+3. ✅ **DONE 2026-07-17.** student/staff adapted, both build `FROM localhost/svk-base`
+   (via `ARG BASE_IMAGE`), **green `--fatal-warnings` (13 checks each)**, verified.
+   - **D5 CONFIRMED on the image:** `dnf5 remove malcontent-control` pulls only
+     itself; `malcontent` the library stays → available for student app-allowlisting.
+   - opilas → `files/student/usr/lib/sysusers.d/svk-opilas.conf` (like admin);
+     reset-opilas-home.service ordered `After=systemd-sysusers.service`.
+   - Strip logic collapsed: input-remapper/distrobox/brew and the discourse/
+     documentation/system-update `.desktop`s are **absent on Silverblue** → deleted;
+     only `gnome-tour` + `malcontent-control` remain to remove.
+   - build.staff.sh → no-op (nothing to strip on the clean base).
+   - Fixes: Wi-Fi `[ -f ] && …` → `if` (latent `set -e` exit-1 as last line);
+     build script COPY+rm not host-context bind (SELinux label denial); student
+     gets ctx + clean-stage + `--mount=type=cache,dst=/var/cache/libdnf5` so the
+     `dnf5 remove` doesn't trip var-tmpfiles / nonempty-run-tmp / var-log.
 4. Phase 3 server verify build.
 5. Phase 4 CI adapted; push branch, watch a real CI run build+sign all four.
 6. **Phase 5 Titanoboa**: adapt `configure_iso_anaconda.sh` (no Secure Boot),

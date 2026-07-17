@@ -1,0 +1,14 @@
+# Kiosk default: Bluetooth starts blocked on every boot. Students can still
+# switch it on from Quick Settings for the session (rfkill soft-block isn't
+# polkit-gated); this unit just re-blocks it on the next boot so one student's
+# choice doesn't stick for the next, and the fleet default stays "off".
+[Unit]
+Description=svk: block Bluetooth radio by default (kiosk)
+Before=display-manager.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/sbin/rfkill block bluetooth
+
+[Install]
+WantedBy=multi-user.target

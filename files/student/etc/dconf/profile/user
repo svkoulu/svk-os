@@ -1,0 +1,5 @@
+# dconf profile for the kiosk. The user's writable db sits on top of the
+# read-only system `local` db, so anything locked in local.d/locks cannot be
+# overridden by the student.
+user-db:user
+system-db:local
