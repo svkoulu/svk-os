@@ -474,9 +474,20 @@ Two ISOs confirmed; the spec's "two precisely-scoped images" reasoning is unchan
    only). Watch on first CI run: runner podman must support `RUN --mount=type=bind,
    from=stage` + `type=cache` (ubuntu-24.04 ships podman 4.9 — expected fine; add a
    podman-update step if not).
-6. **Phase 5 Titanoboa**: adapt `configure_iso_anaconda.sh` (no Secure Boot),
-   wire `flatpaks/common+<flavor>.list`, pin `ublue-os/titanoboa`; build both ISOs;
-   design the LAN-mirror `flatpak update` wiring.
+6. 🟡 **Phase 5 IN PROGRESS 2026-07-17 (written, UNVALIDATED — needs AC build).**
+   Wrote the Titanoboa pipeline: `iso/hook-anaconda.sh` (slim
+   `configure_iso_anaconda.sh` — svk image ref via `$SVK_IMAGE_REF`, bootc switch +
+   `--enforce-container-sigpolicy`, flatpak rsync, **no Secure Boot**, no Bluefin
+   branding), `iso/build-iso.sh` (assemble `common+<flavor>.list`, clone pinned
+   Titanoboa, run `just build`), `.github/workflows/iso.yml`, `iso/README.md`.
+   **Remaining Phase 5 sub-items (see iso/README TODOs):**
+   - (a) validate an end-to-end build on AC; fix Anaconda profile/kickstart as needed.
+   - (b) pin Titanoboa to a real tested ref (currently `@main`).
+   - (c) **per-image branding**: student/staff inherit svk-base's image-info.json/
+     os-release (report `svk-base`); ISO is unaffected (explicit `SVK_IMAGE_REF`) but
+     fastfetch/tooling shows wrong name until they stamp their own identity.
+   - (d) **LAN-mirror `flatpak update` client wiring** (D7) — repurpose the old
+     `svk-flatpak-preinstall.sh` mirror/GPG-key logic (in `archived/`).
 7. `bootc switch` / ISO-install ONE test laptop of each role; verify Firefox + the
    baked flatpaks are present **offline**, **survive a student home-reset**, and
    **update from the LAN mirror**, plus kiosk lockdown, mDNS, SSH, hostname claim,

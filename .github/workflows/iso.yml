@@ -1,0 +1,77 @@
+# Builds installer ISOs for the two desktop images with Titanoboa, on demand.
+#
+# Titanoboa bakes the offline flatpak set into the ISO (see iso/build-iso.sh +
+# iso/hook-anaconda.sh), so first boot needs no network. Separate from build.yml:
+# ISOs are only needed when provisioning new hardware, are slow, and produce large
+# artifacts. Run by hand from the Actions tab. Existing machines never need this —
+# they auto-update from the registry.
+#
+# STATUS: this pipeline is written but NOT yet validated by a real build. The first
+# run is expected to need iteration (Anaconda/Titanoboa plumbing).
+name: iso
+
+on:
+  workflow_dispatch:
+    inputs:
+      image:
+        description: Which ISO(s) to build.
+        type: choice
+        default: both
+        options: [both, svk-student, svk-staff]
+
+env:
+  REGISTRY: ghcr.io
+  NAMESPACE: svkoulu
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  iso:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        flavor: [student, staff]
+    steps:
+      - name: Should this flavor build?
+        id: gate
+        run: |
+          want='${{ inputs.image }}'
+          if [ "$want" = "both" ] || [ "$want" = "svk-${{ matrix.flavor }}" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout
+        if: steps.gate.outputs.run == 'true'
+        uses: actions/checkout@v7
+
+      # Titanoboa materializes a full live rootfs + ISO; the default runner's free
+      # space isn't enough. Strip preinstalled toolchains first (same fix build.yml
+      # ISO jobs used historically).
+      - name: Maximize build space
+        if: steps.gate.outputs.run == 'true'
+        uses: ublue-os/remove-unwanted-software@cc0becac701cf642c8f0a6613bbdaf5dc36b259e # v9
+        with:
+          remove-codeql: true
+
+      - name: Login to GHCR (root's podman — Titanoboa runs under sudo)
+        if: steps.gate.outputs.run == 'true'
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | sudo podman login "${REGISTRY}" \
+            -u "${{ github.actor }}" --password-stdin
+
+      - name: Build ISO with Titanoboa
+        if: steps.gate.outputs.run == 'true'
+        run: bash iso/build-iso.sh "${{ matrix.flavor }}" ghcr
+
+      - name: Upload ISO artifact
+        if: steps.gate.outputs.run == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: svk-${{ matrix.flavor }}-iso
+          path: iso/svk-${{ matrix.flavor }}-*.iso
+          if-no-files-found: error

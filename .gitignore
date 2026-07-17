@@ -15,6 +15,7 @@ secrets/*
 # Local ISO / build output.
 output/
 *.iso
+iso/.build/
 
 # The real student Wi-Fi connection profile holds a plaintext PSK — same
 # secrets-stay-local rule as everything under secrets/. Only the .example
