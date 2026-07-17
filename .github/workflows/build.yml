@@ -1,0 +1,112 @@
+# Builds, signs and publishes all four fleet images to GHCR.
+#
+# Why weekly: these are CUSTOM bootc images, so they do NOT inherit upstream
+# Bluefin/uCore updates automatically. The scheduled rebuild is how new kernels
+# and security fixes reach the fleet. If this pipeline silently stops, machines
+# silently stop getting security updates — see the "Fail loudly" note in the
+# README for wiring up a failure notification.
+name: build
+
+on:
+  schedule:
+    - cron: "0 6 * * 1"      # Mondays 06:00 UTC
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  # GitHub user/org that owns the images. Must match cosign.pub's owner and the
+  # svkoulu placeholders in the Containerfiles / files tree.
+  NAMESPACE: svkoulu
+
+# GITHUB_TOKEN needs to push packages. Keyed cosign signing needs no id-token.
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  # ---- svk-base: the shared desktop layer. Everything below FROMs it. ----
+  build-base:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: sigstore/cosign-installer@v4.1.2
+        with:
+          # Pin to the Cosign v2 line: v4 of the installer defaults to Cosign
+          # v3, which switched image-signature storage to OCI 1.1 referrers.
+          # Our machines verify via registries.d's `use-sigstore-attachments`
+          # (the old sha256-<digest>.sig tag scheme) — signing with v3's new
+          # default would make signatures invisible to that verifier and block
+          # every machine from pulling updates. Revisit once registries.d /
+          # containers/image support for OCI 1.1 referrer signatures is confirmed.
+          cosign-release: "v2.5.3"
+      - uses: ./.github/actions/build-image
+        with:
+          image: svk-base
+          containerfile: Containerfile.base
+          registry: ${{ env.REGISTRY }}
+          namespace: ${{ env.NAMESPACE }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+          cosign_key: ${{ secrets.COSIGN_PRIVATE_KEY }}
+          cosign_password: ${{ secrets.COSIGN_PASSWORD }}
+
+  # ---- student + staff: FROM the freshly pushed svk-base. -----------------
+  build-derived:
+    needs: build-base
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false          # a broken student build shouldn't hide a staff one
+      matrix:
+        image: [svk-student, svk-staff]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: sigstore/cosign-installer@v4.1.2
+        with:
+          # Pin to the Cosign v2 line: v4 of the installer defaults to Cosign
+          # v3, which switched image-signature storage to OCI 1.1 referrers.
+          # Our machines verify via registries.d's `use-sigstore-attachments`
+          # (the old sha256-<digest>.sig tag scheme) — signing with v3's new
+          # default would make signatures invisible to that verifier and block
+          # every machine from pulling updates. Revisit once registries.d /
+          # containers/image support for OCI 1.1 referrer signatures is confirmed.
+          cosign-release: "v2.5.3"
+      - uses: ./.github/actions/build-image
+        with:
+          image: ${{ matrix.image }}
+          # Containerfile.svk-student -> Containerfile.student, etc.
+          containerfile: Containerfile.${{ matrix.image == 'svk-student' && 'student' || 'staff' }}
+          registry: ${{ env.REGISTRY }}
+          namespace: ${{ env.NAMESPACE }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+          cosign_key: ${{ secrets.COSIGN_PRIVATE_KEY }}
+          cosign_password: ${{ secrets.COSIGN_PASSWORD }}
+
+  # ---- server: independent branch (FROM uCore), builds in parallel. ---------
+  build-server:
+    needs: []
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: sigstore/cosign-installer@v4.1.2
+        with:
+          # Pin to the Cosign v2 line: v4 of the installer defaults to Cosign
+          # v3, which switched image-signature storage to OCI 1.1 referrers.
+          # Our machines verify via registries.d's `use-sigstore-attachments`
+          # (the old sha256-<digest>.sig tag scheme) — signing with v3's new
+          # default would make signatures invisible to that verifier and block
+          # every machine from pulling updates. Revisit once registries.d /
+          # containers/image support for OCI 1.1 referrer signatures is confirmed.
+          cosign-release: "v2.5.3"
+      - uses: ./.github/actions/build-image
+        with:
+          image: svk-server
+          containerfile: Containerfile.server
+          registry: ${{ env.REGISTRY }}
+          namespace: ${{ env.NAMESPACE }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+          cosign_key: ${{ secrets.COSIGN_PRIVATE_KEY }}
+          cosign_password: ${{ secrets.COSIGN_PASSWORD }}

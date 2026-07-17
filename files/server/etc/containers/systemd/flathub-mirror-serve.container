@@ -1,0 +1,25 @@
+# Serve the curated Flathub mirror over plain HTTP.
+#
+# A bare OSTree repo IS a valid flatpak remote when served as static files —
+# that's exactly how dl.flathub.org/repo itself works. Stock nginx serving the
+# repo directory as-is is enough; flatpak fetches known object paths, it
+# doesn't need directory listing.
+#
+# svk-flathub-sync.py (timer-driven) populates the volume this mounts.
+
+[Unit]
+Description=Serve the curated Flathub mirror (HTTP)
+After=network-online.target
+Wants=network-online.target
+
+[Container]
+Image=docker.io/library/nginx:stable-alpine
+ContainerName=flathub-mirror-serve
+PublishPort=8080:80
+Volume=flathub-mirror.volume:/usr/share/nginx/html:ro,Z
+
+[Service]
+Restart=always
+
+[Install]
+WantedBy=multi-user.target default.target

@@ -1,0 +1,13 @@
+# Flathub curation ALLOWLIST — force-include an app id even if it fails one of
+# the automatic filters (license / verification / sandbox permissions / OARS
+# content rating) in svk-flathub-sync.py. One app id per line; '#' starts a
+# comment; blank lines ignored. Same flat-file shape as /etc/svk/flatpaks.list.
+#
+# This is the EXAMPLE seeded to /var/lib/svk/flathub-allowlist on first run
+# (see svk-flathub-sync.py: seed_list()) — edit the real file on the server,
+# not this one; it does not get overwritten once it exists.
+#
+# If an id appears on BOTH this list and flathub-blocklist, the blocklist wins
+# and the sync script warns loudly about it.
+#
+# org.example.TrustedButUnverifiedApp

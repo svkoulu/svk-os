@@ -1,0 +1,164 @@
+# server.bu — Butane config for the uCore server's FIRST install.
+#
+# uCore/Fedora CoreOS provision with Ignition, NOT with the desktop images'
+# model. You author human-friendly Butane (this file) and compile it to Ignition
+# JSON, which the installer consumes exactly once at first boot:
+#
+#   butane --pretty --strict --files-dir . server.bu > server.ign
+#   # then boot the CoreOS/uCore installer and point it at server.ign, e.g.
+#   coreos-installer install /dev/sda --ignition-file server.ign
+#
+# --files-dir is REQUIRED: the two secrets below are pulled from files under
+# secrets/ (contents.local) rather than committed inline. See secrets/README.md.
+#
+# This is minimal on purpose: create an admin user, mount the cache data volume,
+# enroll Tailscale, and rebase onto our signed svk-server image. After that
+# the box updates like any other bootc machine (bootc switch / auto-update).
+#
+# NOTE: Ignition is supplied at install time, so the secrets pulled in here are
+# acceptable (they never enter a published image). The compiled server.ign holds
+# them in cleartext — keep it out of git (.gitignore covers *.ign), and never
+# bake either secret into the svk-server IMAGE.
+
+variant: fcos
+version: 1.5.0
+
+passwd:
+  users:
+    - name: admin
+      groups:
+        - wheel
+        - sudo
+      # The human IT operator's public key — same one baked into every desktop.
+      # Key-only login (Ignition leaves the account password locked).
+      ssh_authorized_keys:
+        - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGJ2H0Oi7CwM749rOyjHEnqVHgWHAaEsNVTaJW9Qq0gV admin-operator"
+
+storage:
+  directories:
+    # Cache storage target on the 1TB NVMe. If the NVMe is a separate disk,
+    # replace this with a `filesystems:` + mount unit for that device and mount
+    # it at /var/mnt/registry-cache instead.
+    - path: /var/mnt/registry-cache
+      mode: 0755
+
+    # admin's SSH dir, so the server's outbound key (below) has a home with the
+    # right ownership/perms for the ssh client to accept it.
+    - path: /var/home/admin/.ssh
+      mode: 0700
+      user:
+        name: admin
+      group:
+        name: admin
+
+  files:
+    # Pin the system hostname so Avahi advertises the server as svk-server.local
+    # to the whole LAN (including the student machines that aren't on the tailnet
+    # and so can't use the MagicDNS name). Desktops get their names from the
+    # dispenser; the server, which runs the dispenser, sets its own here.
+    - path: /etc/hostname
+      mode: 0644
+      contents:
+        inline: "svk-server\n"
+
+    # Passwordless sudo for admin, matching the desktops (/etc/sudoers.d there).
+    - path: /etc/sudoers.d/10-svk-admin
+      mode: 0440
+      contents:
+        inline: "admin ALL=(ALL) NOPASSWD: ALL\n"
+
+    # SSH hardening, matching the desktops' 10-svk-hardening.conf, EXCEPT this
+    # box is the jump host: it must allow TCP forwarding so an admin can reach a
+    # LAN-only device in one hop — `ssh -J admin@svk-server admin@svk-*.local`.
+    - path: /etc/ssh/sshd_config.d/10-svk-hardening.conf
+      mode: 0644
+      contents:
+        inline: |
+          AuthorizedKeysFile .ssh/authorized_keys /etc/ssh/authorized_keys.d/%u
+          PubkeyAuthentication yes
+          AuthenticationMethods publickey
+          PasswordAuthentication no
+          PermitEmptyPasswords no
+          KbdInteractiveAuthentication no
+          ChallengeResponseAuthentication no
+          GSSAPIAuthentication no
+          KerberosAuthentication no
+          HostbasedAuthentication no
+          IgnoreRhosts yes
+          PermitRootLogin no
+          AllowGroups wheel
+          MaxAuthTries 3
+          LoginGraceTime 20
+          AllowTcpForwarding yes
+          AllowAgentForwarding no
+          X11Forwarding no
+          PermitTunnel no
+          KexAlgorithms sntrup761x25519-sha512@openssh.com,curve25519-sha256,curve25519-sha256@libssh.org
+          Ciphers chacha20-poly1305@openssh.com,aes256-gcm@openssh.com,aes128-gcm@openssh.com
+          MACs hmac-sha2-512-etm@openssh.com,hmac-sha2-256-etm@openssh.com
+          ClientAliveInterval 300
+          ClientAliveCountMax 2
+
+    # The server's OUTBOUND private key. Its public half is in every desktop's
+    # /etc/ssh/authorized_keys.d/admin, so `ssh admin@svk-student-NN.local` from
+    # here just works — the jump-host fan-out to LAN-only devices. Pulled from
+    # secrets/id_ed25519 at compile time (contents.local), never committed.
+    - path: /var/home/admin/.ssh/id_ed25519
+      mode: 0600
+      user:
+        name: admin
+      group:
+        name: admin
+      contents:
+        local: secrets/id_ed25519
+
+    # Tailscale enrollment for the server (tag:svk-admin). One-off, tagged,
+    # ephemeral-optional pre-auth key from the admin console; pulled from
+    # secrets/tailscale-authkey at compile time. Delete the key after first use.
+    - path: /etc/svk/tailscale-authkey
+      mode: 0600
+      contents:
+        local: secrets/tailscale-authkey
+
+systemd:
+  units:
+    # One-shot: rebase this fresh uCore install onto our signed svk-server
+    # image, then reboot into it. `bootc switch` pins to :latest; the signature
+    # policy baked into the image takes over from the next update onward.
+    - name: svk-server-rebase.service
+      enabled: true
+      contents: |
+        [Unit]
+        Description=Rebase onto ghcr.io svk-server image (first boot)
+        After=network-online.target
+        Wants=network-online.target
+        ConditionPathExists=!/var/lib/svk/.rebased
+        [Service]
+        Type=oneshot
+        RemainAfterExit=yes
+        ExecStart=/usr/bin/bootc switch --enforce-container-sigpolicy ghcr.io/svkoulu/svk-server:latest
+        ExecStartPost=/usr/bin/mkdir -p /var/lib/svk
+        ExecStartPost=/usr/bin/touch /var/lib/svk/.rebased
+        ExecStartPost=/usr/bin/systemctl reboot
+        [Install]
+        WantedBy=multi-user.target
+
+    # Bring Tailscale up with the key + admin tag on first boot.
+    - name: svk-tailscale-up.service
+      enabled: true
+      contents: |
+        [Unit]
+        Description=Enroll server in Tailscale (tag:svk-admin)
+        After=tailscaled.service network-online.target
+        Wants=network-online.target
+        Requires=tailscaled.service
+        ConditionPathExists=/etc/svk/tailscale-authkey
+        ConditionPathExists=!/var/lib/svk/.tailscale-up
+        [Service]
+        Type=oneshot
+        RemainAfterExit=yes
+        ExecStart=/usr/bin/bash -c 'source /etc/svk/tailscale.conf; /usr/bin/tailscale up --authkey "$(cat /etc/svk/tailscale-authkey)" --advertise-tags "$TAILSCALE_TAG" --hostname svk-server'
+        ExecStartPost=/usr/bin/mkdir -p /var/lib/svk
+        ExecStartPost=/usr/bin/touch /var/lib/svk/.tailscale-up
+        [Install]
+        WantedBy=multi-user.target

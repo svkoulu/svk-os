@@ -457,8 +457,23 @@ Two ISOs confirmed; the spec's "two precisely-scoped images" reasoning is unchan
      build script COPY+rm not host-context bind (SELinux label denial); student
      gets ctx + clean-stage + `--mount=type=cache,dst=/var/cache/libdnf5` so the
      `dnf5 remove` doesn't trip var-tmpfiles / nonempty-run-tmp / var-log.
-4. Phase 3 server verify build.
-5. Phase 4 CI adapted; push branch, watch a real CI run build+sign all four.
+4. ✅ **DONE 2026-07-17 (files restored; build verify deferred — battery).** Server
+   is fully self-contained (uCore base, own `build.server.sh`/`files/server/`,
+   doesn't even COPY cosign.pub) so the restructure can't have touched it. Restored
+   `Containerfile.server`/`build.server.sh`/`server.bu`/`files/server/` from
+   `archived/`. A local build was started then stopped (uCore pull is power-hungry);
+   CI will verify. Server lint stays plain `bootc container lint` (not
+   `--fatal-warnings`) — a different base we don't control; leave unchanged.
+5. ✅ **DONE 2026-07-17 (CI files adapted; verify via real run).** Restored
+   `.github/` from `archived/`. `build.yml` needed **no structural change** — same
+   Containerfile names, `NAMESPACE=svkoulu`, cosign **v2.5.3** pin, `fail-fast:false`,
+   base→derived `needs` graph, independent server; student/staff build FROM the ghcr
+   `BASE_IMAGE` default that `build-base` pushes. Removed the old BIB `iso.yml`
+   (D6 → Titanoboa replaces it in Phase 5). Kept signing/push **bespoke** (4a);
+   D4 dnf-cache reusable action **deferred** (first cut keeps `--mount=type=cache`
+   only). Watch on first CI run: runner podman must support `RUN --mount=type=bind,
+   from=stage` + `type=cache` (ubuntu-24.04 ships podman 4.9 — expected fine; add a
+   podman-update step if not).
 6. **Phase 5 Titanoboa**: adapt `configure_iso_anaconda.sh` (no Secure Boot),
    wire `flatpaks/common+<flavor>.list`, pin `ublue-os/titanoboa`; build both ISOs;
    design the LAN-mirror `flatpak update` wiring.

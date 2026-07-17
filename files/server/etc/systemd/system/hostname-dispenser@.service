@@ -1,0 +1,15 @@
+# Per-connection instance for the hostname dispenser socket. stdin/stdout are
+# wired to the accepted connection, which is exactly the dispenser's protocol.
+[Unit]
+Description=Fleet hostname dispenser (connection %i)
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/hostname-dispenser.sh
+StandardInput=socket
+StandardOutput=socket
+StandardError=journal
+# The script only touches /var/lib/svk; keep the rest of the box read-only.
+ProtectSystem=strict
+ReadWritePaths=/var/lib/svk
+PrivateTmp=yes

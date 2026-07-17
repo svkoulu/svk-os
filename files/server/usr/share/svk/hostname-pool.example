@@ -1,0 +1,73 @@
+# Example hostname pool. On first run the dispenser copies this to
+# /var/lib/svk/hostname-pool (on the data volume) if that file doesn't exist;
+# edit the REAL pool there, not this example — the example is baked into the
+# image and reset on every update.
+#
+# One hostname label per line. '#' comments and blank lines are ignored. Labels
+# must be valid DNS labels (lowercase letters, digits, hyphens) so they resolve
+# cleanly under Tailscale MagicDNS. Give yourself more names than machines.
+
+abacaxi
+acai
+acerola
+araca
+atemoia
+bacaba
+bacuri
+banana
+bergamota
+biriba
+buriti
+cacau
+cagaita
+caja
+cajarana
+caju
+cambuca
+cambuci
+carambola
+cidra
+cupuacu
+fruta-do-conde
+goiaba
+graviola
+grumixama
+guabiroba
+guarana
+inga
+jabuticaba
+jaca
+jambo
+jambolao
+jatoba
+jenipapo
+laranja
+laranja-lima
+lima-da-persia
+limao-cravo
+limao-galego
+limao-rosa
+limao-siciliano
+limao-taiti
+mamao
+manga
+mangaba
+maracuja
+mexerica
+murici
+patawa
+pequi
+pinha
+piquia
+pitanga
+pomelo
+pupunha
+sapoti
+seriguela
+tamarindo
+tangerina
+taperaba
+toranja
+tucuma
+umbu
+uva

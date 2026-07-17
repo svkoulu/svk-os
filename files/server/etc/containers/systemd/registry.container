@@ -1,0 +1,39 @@
+# Podman quadlet: pull-through registry cache for ghcr.io.
+#
+# registry:2 in proxy mode transparently caches anything pulled through it, so
+# the ~19 student laptops fetch multi-GB image layers once (from ghcr.io) and
+# then from this box over the fast local network. Clients are pointed here by
+# the ghcr.io mirror drop-in (files/base/.../010-ghcr-mirror.conf); this server
+# itself deliberately keeps talking to the real ghcr.io.
+#
+# systemd generates registry.service from this file at boot. Manage it as:
+#   systemctl status registry.service
+#   journalctl -u registry.service
+
+[Unit]
+Description=Pull-through registry cache for ghcr.io
+After=network-online.target
+Wants=network-online.target
+
+[Container]
+Image=docker.io/library/registry:2
+ContainerName=registry-cache
+# Clients reach the cache on :5000. The mirror `location` in the client drop-in
+# should be "<host>:5000" (its Tailscale name or LAN address).
+PublishPort=5000:5000
+# Proxy mode = pull-through cache. Every miss is fetched from ghcr.io and stored.
+Environment=REGISTRY_PROXY_REMOTEURL=https://ghcr.io
+# Cache storage lives on the 1TB data-volume NVMe, NOT in the container. Create
+# /var/mnt/registry-cache on that disk (see server.bu). :Z keeps SELinux happy.
+Volume=/var/mnt/registry-cache:/var/lib/registry:Z
+# If you ever cache *private* ghcr images, supply read-only creds here (via a
+# systemd EnvironmentFile / secret — never bake them into the image):
+# Environment=REGISTRY_PROXY_USERNAME=...
+# Environment=REGISTRY_PROXY_PASSWORD=...
+
+[Service]
+Restart=always
+
+[Install]
+# Start on boot.
+WantedBy=multi-user.target default.target

@@ -1,0 +1,10 @@
+# Named Podman volume backing the curated Flathub mirror.
+#
+# svk-flathub-sync.py writes to it directly (natively on the host, not from a
+# container — see that script's docstring for why); flathub-mirror-serve.
+# container mounts the SAME volume read-only to serve it over HTTP. Quadlet
+# names the underlying Podman volume "systemd-<unit-stem>", i.e.
+# "systemd-flathub-mirror" here — svk-flathub-sync.py resolves that name via
+# `podman volume inspect` to get the real on-disk path.
+
+[Volume]

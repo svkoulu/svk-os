@@ -1,0 +1,79 @@
+# Seed config for AdGuard Home — caching resolver + blocklists + per-client
+# config in one process (see adguard-home.container). svk-adguard-seed.sh
+# copies this to the persistent data volume as AdGuardHome.yaml on first run
+# only; AdGuard Home owns and rewrites the file after that (including schema
+# migrations on upgrade), same seed-then-hands-off pattern as
+# hostname-pool.example.
+#
+# Shipping this pre-filled means AdGuard Home skips its install wizard and
+# starts serving DNS immediately. `users: []` (no web-UI login configured)
+# does NOT affect DNS serving — only the dashboard at :3000 is open until an
+# admin sets a real password there. Do that as a first-boot follow-up (see
+# TODO.md) rather than baking a default credential into the image.
+#
+# VERIFY AT DEPLOY TIME: AdGuard Home's yaml schema changes across releases
+# (schema_version below). If the running version rejects/migrates this file
+# oddly, check its current config docs and adjust.
+schema_version: 27
+
+http:
+  address: 0.0.0.0:3000
+
+users: []
+
+dns:
+  bind_hosts:
+    - 0.0.0.0
+  port: 53
+  # AdGuard Home's OWN upstream, used to actually resolve whatever isn't
+  # served from cache/blocklist. Distinct from the NextDNS fallback the
+  # CLIENTS use when they can't reach this server at all (resolved.conf.d) —
+  # this is what the self-hosted instance itself talks to.
+  upstream_dns:
+    - https://dns.quad9.net/dns-query
+    - https://dns.cloudflare.com/dns-query
+  bootstrap_dns:
+    - 9.9.9.9
+    - 1.1.1.1
+  cache_size: 4194304
+
+filtering:
+  filtering_enabled: true
+  parental_enabled: false
+  safe_browsing_enabled: false
+
+# "Self-hosted lists primary" (see README): AdGuard Home downloads and applies
+# these itself, locally, rather than the fleet depending on a cloud filtering
+# API while on campus. Refreshed periodically by AdGuard Home itself.
+filters:
+  - enabled: true
+    url: https://adguardteam.github.io/HostlistsRegistry/assets/filter_1.txt
+    name: AdGuard DNS filter
+    id: 1
+  - enabled: true
+    url: https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts
+    name: StevenBlack hosts
+    id: 2
+
+# Per-client config (student vs. staff) in this one process, no extra tooling.
+# PLACEHOLDER CIDRs below — replace with the real DHCP scopes/reservations
+# once they exist (see TODO.md); until then every client just gets the
+# fleet-wide filters above.
+clients:
+  runtime_sources:
+    whois: true
+    arp: true
+    rdns: true
+    dhcp: true
+    hosts: true
+  persistent: []
+    # - name: students
+    #   ids:
+    #     - 10.20.0.0/24        # <<STUDENT_DHCP_SCOPE>>
+    #   filtering_enabled: true
+    #   safe_search:
+    #     enabled: true
+    # - name: staff
+    #   ids:
+    #     - 10.20.1.0/24        # <<STAFF_DHCP_SCOPE>>
+    #   filtering_enabled: true

@@ -1,0 +1,14 @@
+# Oneshot: seed AdGuard Home's config onto its data volume before the
+# container itself starts. See svk-adguard-seed.sh.
+[Unit]
+Description=Seed AdGuard Home config
+Before=adguard-home.service
+After=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/svk-adguard-seed.sh
+
+[Install]
+WantedBy=multi-user.target

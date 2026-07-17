@@ -1,0 +1,5 @@
+# Named Podman volume for AdGuard Home's /opt/adguardhome (conf + work dirs),
+# same lifecycle model as registry-cache and flathub-mirror. Seeded by
+# svk-adguard-seed.sh before the container's first start.
+
+[Volume]
