@@ -1,0 +1,22 @@
+# iso/installer/Containerfile — the throwaway "installer image" Titanoboa squashfs's
+# into a live-boot ISO. Built FROM the already-published (or locally-built)
+# svk-<flavor> image; never pushed to GHCR. See iso/installer/build.sh for what it
+# adds: Anaconda + kickstart, the offline flatpak bake, and the live-boot/iso.yaml
+# plumbing the container-native ISO contract expects.
+#
+# Build with: podman build --cap-add sys_admin --security-opt label=disable
+#   --build-arg BASE_IMAGE=<svk-flavor ref> --build-arg FLAVOR=<student|staff>
+#   --build-arg IMAGE_REF=<real ghcr ref the installed system should track>
+#   -f iso/installer/Containerfile <repo root>
+#
+# No `bootc container lint` here — this image never runs via bootc, it's a
+# live-ISO source only.
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
+ARG FLAVOR
+ARG IMAGE_REF
+
+COPY flatpaks/ /tmp/flatpaks/
+COPY iso/installer/build.sh /tmp/build.sh
+RUN FLAVOR="${FLAVOR}" IMAGE_REF="${IMAGE_REF}" bash /tmp/build.sh \
+    && rm -rf /tmp/build.sh /tmp/flatpaks

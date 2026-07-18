@@ -38,7 +38,7 @@ build/                                       # svk-base's numbered build scripts
 build.{student,staff,server}.sh              # per-image build scripts
 files/{base,student,staff,server}/           # static trees COPY'd to image "/"
 flatpaks/{common,student,staff}.list         # flatpak sets baked into the ISOs
-iso/                                         # Titanoboa ISO pipeline (build-iso.sh, hook-anaconda.sh)
+iso/                                         # Titanoboa ISO pipeline (build-iso.sh, installer/)
 server.bu                                    # Butane for the uCore server's first install
 cosign.pub                                   # image-signing public key (private key is a repo secret)
 Justfile                                     # local build + setup commands (`just`)

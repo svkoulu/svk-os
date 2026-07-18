@@ -25,11 +25,15 @@ not `FROM bluefin`; ISOs bake flatpaks offline via Titanoboa). Items marked
 ## 1. Finish Phase 5 — ISOs (Titanoboa) — needs AC power
 
 The ISO pipeline (`iso/`) is written but **NOT yet validated end-to-end**. See
-`iso/README.md`.
+`iso/README.md`. Note: upstream Titanoboa did a breaking rewrite (PR #138,
+2026-05-19) that dropped its old Justfile/`HOOK_post_rootfs` interface and
+Anaconda entirely — the pipeline was adapted to the new container-native
+contract (a throwaway `iso/installer/` image now bakes Anaconda + the kickstart +
+flatpaks + live-boot support, instead of Titanoboa injecting a hook).
 
 - [ ] Run one ISO build (`just iso student local`) and fix any
       Anaconda/Titanoboa plumbing it surfaces.
-- [ ] Pin Titanoboa to a real tested ref in `iso/build-iso.sh` (currently `@main`).
+- [x] Pin Titanoboa to a real tested commit in `iso/build-iso.sh` (was `@main`).
 - [x] **Per-image branding + metadata** — done. Each image stamps its own os-release
       (`NAME`/`IMAGE_ID`/`IMAGE_VERSION`) **and** `/usr/share/svk-os/image-info.json`
       (channel/version/release-tag/base/fedora) via `/usr/libexec/svk/stamp-os-release`,

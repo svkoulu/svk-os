@@ -1,16 +1,20 @@
-# svk ISOs — Titanoboa (offline flatpak bake)
+# svk ISOs — Titanoboa (container-native ISO contract)
 
 The two desktop installer ISOs (`svk-student`, `svk-staff`) are built with
-[Titanoboa](https://github.com/ublue-os/titanoboa) + Anaconda, the same way
-Project Bluefin builds its official ISOs. Titanoboa bakes the curated flatpak set
-**into the ISO**, so first boot needs no network and the apps land in system-scope
-`/var/lib/flatpak` (surviving a student home-reset). This is decision **D6** in the
-rebuild plan; it replaced the old plain `bootc-image-builder` ISO workflow.
-
-> **STATUS: written, NOT yet validated.** The pipeline is derived from the verified
-> upstream but has not been run end-to-end (an ISO build needs AC power). Expect the
-> first real build to need iteration on the Anaconda/Titanoboa plumbing. The TODOs
-> below must be closed before shipping ISOs.
+[Titanoboa](https://github.com/ublue-os/titanoboa), the same tool Bazzite's live
+ISOs use. Titanoboa is pinned to a specific commit
+(`5c457c3d0518bd17e754be0fd98a60d29d26abb4`, 2026-05-19) — upstream did a breaking
+rewrite around then (`feat!: Only use container images as the only source of
+truth`, PR #138) that dropped its old Justfile/`HOOK_post_rootfs` interface
+entirely. Titanoboa is now a thin tool: it just squashfs's a container image into
+a boot-and-run LiveOS ISO, driven by an `/usr/lib/bootc-image-builder/iso.yaml`
+baked **inside the image**. Anaconda, the kickstart, and the offline flatpak bake
+are no longer something Titanoboa injects — they're baked into a throwaway
+**installer image** (`iso/installer/`) built FROM the real `svk-<flavor>` image
+and fed to Titanoboa. That installer image is never pushed anywhere; only the ISO
+it produces matters. This is decision **D6** in the rebuild plan; it replaced the
+old plain `bootc-image-builder` ISO workflow, and was itself later adapted when
+Titanoboa's own interface changed upstream.
 
 ## Pieces
 
@@ -18,8 +22,9 @@ rebuild plan; it replaced the old plain `bootc-image-builder` ISO workflow.
 |---|---|
 | `flatpaks/common.list` | shared fleet apps, baked into **both** ISOs |
 | `flatpaks/student.list` / `staff.list` | per-flavor extras (concatenated with common) |
-| `iso/hook-anaconda.sh` | Titanoboa `HOOK_post_rootfs`: installs Anaconda, kickstart that installs the svk image, `bootc switch`es the origin to the signed registry ref, and rsyncs the baked `/var/lib/flatpak` onto the target. **No Secure Boot enrollment** (N4). |
-| `iso/build-iso.sh` | wrapper: assemble the flatpak list, clone pinned Titanoboa, run its `just build`, collect the ISO |
+| `iso/installer/Containerfile` | builds the throwaway installer image `FROM` the real `svk-<flavor>` image |
+| `iso/installer/build.sh` | installs Anaconda, writes the kickstart (`bootc switch`es the origin to the signed registry ref, rsyncs the baked `/var/lib/flatpak` onto the target — **no Secure Boot enrollment**, N4), pre-installs the flatpak set into `/var/lib/flatpak`, adds `dracut-live`/`livesys-scripts` for live-boot, and writes `iso.yaml` |
+| `iso/build-iso.sh` | wrapper: get the base image into root's podman storage, build the installer image, run pinned Titanoboa against it, collect the ISO |
 | `.github/workflows/iso.yml` | manual `workflow_dispatch` build of either/both flavors |
 
 ## Build locally (needs a real host, root podman, AC power)
@@ -29,7 +34,7 @@ rebuild plan; it replaced the old plain `bootc-image-builder` ISO workflow.
 iso/build-iso.sh student ghcr     # or: iso/build-iso.sh student local
 ```
 
-ISO lands at `iso/svk-student-YYYYMMDD.iso`.
+ISO lands at `iso/svk-student-<version>.iso`.
 
 ## How updates work after install (D7 — the LAN mirror)
 
@@ -42,8 +47,9 @@ item; it repurposes the GPG-key-extraction logic from the old
 
 ## TODOs before ISOs ship
 
-- [ ] **Pin Titanoboa** to a real tested ref in `build-iso.sh` (currently `@main`).
-- [ ] **Validate an end-to-end build** on AC power; fix Anaconda profile / kickstart
+- [x] **Pin Titanoboa** to a real tested commit in `build-iso.sh` (was `@main`,
+      which silently rode upstream's breaking container-native rewrite).
+- [ ] **Validate an end-to-end build** fix Anaconda profile / kickstart
       as needed.
 - [x] **Per-image branding** — done: student/staff stamp their own os-release via
       `/usr/libexec/svk/stamp-os-release`, so fastfetch/tooling report `svk-student` /

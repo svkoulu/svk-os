@@ -1,32 +1,50 @@
 #!/usr/bin/env bash
-# build-iso.sh — build one svk desktop ISO with Titanoboa (offline flatpak bake).
+# build-iso.sh — build one svk desktop ISO with Titanoboa (container-native ISO
+# contract: https://github.com/ondrejbudai/bootc-isos).
 #
 #   Usage: iso/build-iso.sh <flavor> [repo] [channel]
 #     flavor  : student | staff
 #     repo    : ghcr (default) | local
 #     channel : stable (default) | testing — only meaningful for repo=ghcr
 #
-# What it does (adapted from projectbluefin/iso's hack/local-iso-build.sh):
-#   1. Assembles the flavor's flatpak list  = flatpaks/common.list + <flavor>.list
-#   2. Clones Titanoboa (pinned) into iso/.build/<flavor>/
-#   3. Runs Titanoboa's `just build <image> 1 flatpaks.list`, passing svk's
-#      hook-anaconda.sh as HOOK_post_rootfs and the image ref as SVK_IMAGE_REF.
-#   4. Copies the resulting ISO to iso/svk-<flavor>-<version>.iso (version from the
-#      baked image's image.version label, e.g. 1-20260718)
+# What it does:
+#   1. Gets the svk-<flavor> image into root's podman storage (Titanoboa/the
+#      installer build need root podman for loop devices + privileged mounts).
+#   2. Builds a throwaway "installer image" (iso/installer/) FROM that image:
+#      Anaconda + the offline flatpak bake + live-boot support + iso.yaml. Never
+#      pushed anywhere — it only exists to feed Titanoboa.
+#   3. Runs Titanoboa (pinned commit) against that installer image to squashfs it
+#      into a boot-and-run LiveOS ISO.
+#   4. Copies the resulting ISO to iso/svk-<flavor>-<version>.iso (version from
+#      the target image's image.version label, e.g. 1-20260718).
 #
-# Titanoboa needs root podman (loop devices for ISO creation) — run on a real host
-# with sudo, not inside a rootless dev container. NEEDS AC POWER (ISO builds are
-# heavy) and is NOT yet validated end-to-end.
+# Needs a real host with root podman + AC power (ISO builds are heavy).
 set -euo pipefail
 
-# --- Titanoboa pin (N3). Track ublue-os/titanoboa; bump via Renovate. ----------
-# TODO(validate): set to a real, tested commit/tag. @main is the moving default.
+# --- Titanoboa pin. Track ublue-os/titanoboa; bump deliberately (upstream did a
+# breaking rewrite in #138 that dropped its old Justfile/hook interface — pin to
+# an exact commit, not a moving branch, so that doesn't happen again silently). --
 TITANOBOA_REPO="https://github.com/ublue-os/titanoboa"
-TITANOBOA_REF="main"
+TITANOBOA_REF="5c457c3d0518bd17e754be0fd98a60d29d26abb4" # main @ 2026-05-19, container-native rewrite (#138)
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 NAMESPACE="${NAMESPACE:-svkoulu}"
 REGISTRY="${REGISTRY:-ghcr.io}"
+
+# `sudo`'s secure_path often doesn't include wherever podman actually lives (e.g.
+# /usr/local/bin), so a bare `sudo podman` can fail with "command not found" even
+# though passwordless sudo itself works fine — resolve the absolute path once and
+# always invoke sudo with that, never with the bare command name.
+PODMAN="$(command -v podman)"
+
+# Prime sudo's credential cache up front and keep it alive for the whole script:
+# without this, a long step (e.g. copying a multi-GB image) can outlast sudo's
+# timestamp, and a later sudo call fails with "a password is required" since
+# there's no TTY to re-prompt in this non-interactive pipeline.
+sudo -v
+( while true; do sudo -n -v; sleep 60; done ) &
+SUDO_KEEPALIVE_PID=$!
+trap 'kill "$SUDO_KEEPALIVE_PID" 2>/dev/null || true' EXIT
 
 flavor="${1:?usage: build-iso.sh <student|staff> [ghcr|local] [stable|testing]}"
 repo="${2:-ghcr}"
@@ -34,65 +52,82 @@ channel="${3:-stable}"
 case "$flavor" in student|staff) ;; *) echo "flavor must be student|staff" >&2; exit 1 ;; esac
 case "$channel" in stable|testing) ;; *) echo "channel must be stable|testing" >&2; exit 1 ;; esac
 
-# The fleet installs the STABLE channel, so ghcr ISOs bake :stable by default (needs
-# at least one cut git tag) — pass "testing" to bake :testing (built from main)
-# instead, e.g. to validate the pipeline before a first release. Override IMAGE_REF
-# in the env to bake an arbitrary tag.
+# The real ref the installed machine should track — used for the kickstart's
+# ostreecontainer/bootc-switch target regardless of what the installer image is
+# built FROM. Even a repo=local test install should end up pointed at a real,
+# fetchable origin (not localhost/..., which wouldn't exist on real hardware).
+IMAGE_REF="${REGISTRY}/${NAMESPACE}/svk-${flavor}:${channel}"
+
 case "$repo" in
-    ghcr)  IMAGE_REF="${IMAGE_REF:-${REGISTRY}/${NAMESPACE}/svk-${flavor}:${channel}}" ;;
-    local) IMAGE_REF="localhost/svk-${flavor}:latest" ;;
+    ghcr)  BASE_IMAGE="$IMAGE_REF" ;;
+    local) BASE_IMAGE="localhost/svk-${flavor}:latest" ;;
     *) echo "repo must be ghcr|local" >&2; exit 1 ;;
 esac
 
+# --- 1. Make sure BASE_IMAGE is in root's podman storage -----------------------
+# Titanoboa and the installer-image build both need root podman.
+if [ "$repo" = "ghcr" ]; then
+    sudo "$PODMAN" pull "$BASE_IMAGE"
+else
+    sudo "$PODMAN" image exists "$BASE_IMAGE" || \
+        podman image scp "$(id -un)@localhost::${BASE_IMAGE}" "root@localhost::${BASE_IMAGE}"
+fi
+
+# --- 2. Build the throwaway installer image ------------------------------------
+INSTALLER_IMAGE="localhost/svk-${flavor}-installer:latest"
+sudo "$PODMAN" build \
+    --cap-add sys_admin --security-opt label=disable \
+    --build-arg BASE_IMAGE="$BASE_IMAGE" \
+    --build-arg FLAVOR="$flavor" \
+    --build-arg IMAGE_REF="$IMAGE_REF" \
+    -t "$INSTALLER_IMAGE" \
+    -f "${REPO_ROOT}/iso/installer/Containerfile" \
+    "$REPO_ROOT"
+
+# --- 3. Fetch Titanoboa (pinned) ------------------------------------------------
 BUILD_DIR="${REPO_ROOT}/iso/.build/${flavor}"
-mkdir -p "$BUILD_DIR"
-
-# --- 1. Assemble the flatpak list (shared + per-flavor), stripped of comments ---
-FLATPAK_LIST="${BUILD_DIR}/flatpaks.list"
-cat "${REPO_ROOT}/flatpaks/common.list" "${REPO_ROOT}/flatpaks/${flavor}.list" \
-    | sed 's/#.*//' | tr -d '[:blank:]' | grep -v '^$' | sort -u > "$FLATPAK_LIST"
-echo "Flatpaks to bake into svk-${flavor}:"; cat "$FLATPAK_LIST"
-
-# --- 2. Fetch Titanoboa (pinned) -----------------------------------------------
-if [ ! -f "${BUILD_DIR}/Justfile" ]; then
+if [ ! -f "${BUILD_DIR}/main.sh" ]; then
     echo "Fetching Titanoboa (${TITANOBOA_REF})..."
+    rm -rf "$BUILD_DIR"
+    mkdir -p "$BUILD_DIR"
     tmp="$(mktemp -d)"
-    git clone --depth 1 --branch "$TITANOBOA_REF" "$TITANOBOA_REPO" "$tmp"
-    rsync -a --exclude='work/' "$tmp/" "$BUILD_DIR/"
+    git clone --quiet "$TITANOBOA_REPO" "$tmp"
+    git -C "$tmp" checkout --quiet "$TITANOBOA_REF"
+    rsync -a --exclude='.git/' "$tmp/" "$BUILD_DIR/"
     rm -rf "$tmp"
 fi
+# main.sh does its own internal `sudo podman run` — same bare-command PATH problem
+# as above, in code we don't control. Patch our pinned local copy to use the
+# resolved absolute path too (idempotent: no-op once already patched).
+sed -i "s|sudo podman run|sudo \"\$PODMAN\" run|" "${BUILD_DIR}/main.sh"
 
-# --- 3. Make sure the target image is in root's podman storage -----------------
-# Titanoboa reads the image from root's containers-storage.
-if [ "$repo" = "ghcr" ]; then
-    sudo podman pull "$IMAGE_REF"
-else
-    # local: copy from the (rootless) user store into root's store if needed.
-    sudo podman image exists "$IMAGE_REF" || \
-        podman image scp "$(id -un)@localhost::${IMAGE_REF}" "root@localhost::${IMAGE_REF}"
-fi
+# Unmerged upstream fix (https://github.com/ublue-os/titanoboa/pull/147, base
+# commit == our pin): mksquashfs treats everything after the first -e as exclude
+# names, so `-comp zstd -Xcompression-level 19` after `-e sysroot -e ostree` gets
+# swallowed as bogus excludes and silently falls back to gzip — bigger ISOs, slower
+# live-boot reads. Apply the one-line reorder locally instead of pinning to an
+# unreviewed fork branch that could move or disappear; drop this once a real
+# upstream commit with the fix lands and TITANOBOA_REF is bumped past it.
+sed -i \
+    's|mksquashfs /rootfs /work/iso-root/LiveOS/squashfs.img -all-root -noappend -e sysroot -e ostree -comp zstd -Xcompression-level 19|mksquashfs /rootfs /work/iso-root/LiveOS/squashfs.img -all-root -noappend -comp zstd -Xcompression-level 19 -e sysroot ostree|' \
+    "${BUILD_DIR}/build_iso.sh"
 
-# --- 4. Build the ISO ----------------------------------------------------------
-cp "${REPO_ROOT}/iso/hook-anaconda.sh" "${BUILD_DIR}/hook.sh"
+# --- 4. Build the ISO -----------------------------------------------------------
+# main.sh escalates internally via its own single `sudo podman run` — do NOT wrap
+# this call in sudo yourself, or you'll hit an unauthenticated nested-sudo prompt
+# (root has no sudo rules of its own on most hosts). Since the installer image was
+# just built with `sudo podman build`, it's already in root's storage, so that
+# internal `--mount type=image` finds it directly.
 cd "$BUILD_DIR"
-echo "Running Titanoboa build for ${IMAGE_REF}..."
-sudo env \
-    TITANOBOA_BUILDER_DISTRO="fedora" \
-    HOOK_post_rootfs="hook.sh" \
-    SVK_IMAGE_REF="$IMAGE_REF" \
-    just PODMAN="podman" build "$IMAGE_REF" 1 flatpaks.list
+iso_path="$(env TITANOBOA_CTR_IMAGE="$INSTALLER_IMAGE" PODMAN="$PODMAN" ./main.sh)"
 
-# --- 5. Collect the ISO --------------------------------------------------------
-# Name the ISO after the exact image version it baked (the image.version label /
+# --- 5. Collect the ISO ----------------------------------------------------------
+# Name the ISO after the exact image version it targets (the image.version label /
 # os-release IMAGE_VERSION, e.g. 1-20260718) so the ISO, the image tag and os-release
 # all report one matching version. Local dev images may carry none -> fall back to date.
-img_ver="$(sudo podman inspect --format '{{index .Config.Labels "org.opencontainers.image.version"}}' "$IMAGE_REF" 2>/dev/null || true)"
+img_ver="$(sudo "$PODMAN" inspect --format '{{index .Config.Labels "org.opencontainers.image.version"}}' "$BASE_IMAGE" 2>/dev/null || true)"
 [ -n "$img_ver" ] || img_ver="$(date +%Y%m%d)"
 out="${REPO_ROOT}/iso/svk-${flavor}-${img_ver}.iso"
-if [ -f "${BUILD_DIR}/output.iso" ]; then
-    cp "${BUILD_DIR}/output.iso" "$out"
-    echo "SUCCESS: ${out}"
-else
-    echo "ERROR: Titanoboa produced no output.iso" >&2
-    exit 1
-fi
+sudo chown "$(id -u):$(id -g)" "$iso_path"
+mv "$iso_path" "$out"
+echo "SUCCESS: ${out}"
