@@ -77,12 +77,18 @@ else
 fi
 
 # --- 2. Build the throwaway installer image ------------------------------------
+# Temporary LUKS passphrase used only to create the encrypted disk during install.
+# Fresh per build so it isn't a committed/reused secret; the target's first-boot
+# svk-luks-tpm-enroll.service wipes this slot after enrolling TPM2 + a per-machine
+# recovery key, so it never unlocks anything on the deployed fleet.
+LUKS_BOOTSTRAP_PASSPHRASE="$(openssl rand -base64 24)"
 INSTALLER_IMAGE="localhost/svk-${flavor}-installer:latest"
 sudo "$PODMAN" build \
     --cap-add sys_admin --security-opt label=disable \
     --build-arg BASE_IMAGE="$BASE_IMAGE" \
     --build-arg FLAVOR="$flavor" \
     --build-arg IMAGE_REF="$IMAGE_REF" \
+    --build-arg LUKS_BOOTSTRAP_PASSPHRASE="$LUKS_BOOTSTRAP_PASSPHRASE" \
     -t "$INSTALLER_IMAGE" \
     -f "${REPO_ROOT}/iso/installer/Containerfile" \
     "$REPO_ROOT"
@@ -133,4 +139,19 @@ img_ver="$(sudo "$PODMAN" inspect --format '{{index .Config.Labels "org.opencont
 out="${REPO_ROOT}/iso/svk-${flavor}-${img_ver}.iso"
 sudo chown "$(id -u):$(id -g)" "$iso_path"
 mv "$iso_path" "$out"
+
+# Surface the bootstrap passphrase as a FALLBACK. The TPM is pre-enrolled at install
+# time (svk-luks-tpm.ks %post), so machines with a TPM auto-unlock from first boot
+# with no prompt. This passphrase is only needed if a machine has no TPM (or a PCR
+# mismatch) and stops at the disk-unlock prompt. Written 0600 next to the ISO
+# (gitignored) and echoed; the first-boot service wipes it from installed machines.
+pass_file="${out%.iso}.luks-bootstrap.txt"
+( umask 077; printf '%s\n' "$LUKS_BOOTSTRAP_PASSPHRASE" >"$pass_file" )
 echo "SUCCESS: ${out}"
+echo
+echo "  LUKS bootstrap passphrase for this ISO (FALLBACK only — the TPM is pre-enrolled"
+echo "  so machines normally auto-unlock; needed if one has no TPM and prompts):"
+echo
+echo "      ${LUKS_BOOTSTRAP_PASSPHRASE}"
+echo
+echo "  Also saved to: ${pass_file}  (keep it safe; delete once all machines are provisioned)"

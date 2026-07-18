@@ -23,8 +23,9 @@ Titanoboa's own interface changed upstream.
 | `flatpaks/common.list` | shared fleet apps, baked into **both** ISOs |
 | `flatpaks/student.list` / `staff.list` | per-flavor extras (concatenated with common) |
 | `iso/installer/Containerfile` | builds the throwaway installer image `FROM` the real `svk-<flavor>` image |
-| `iso/installer/build.sh` | installs Anaconda, writes the kickstart (`bootc switch`es the origin to the signed registry ref, rsyncs the baked `/var/lib/flatpak` onto the target — **no Secure Boot enrollment**, N4), pre-installs the flatpak set into `/var/lib/flatpak`, adds `dracut-live`/`livesys-scripts` for live-boot, and writes `iso.yaml` |
-| `iso/build-iso.sh` | wrapper: get the base image into root's podman storage, build the installer image, run pinned Titanoboa against it, collect the ISO |
+| `iso/installer/build.sh` | installs Anaconda, writes the kickstart (localization + auto-partition + LUKS, `bootc switch`es the origin to the signed registry ref, rsyncs the baked `/var/lib/flatpak` onto the target — **no Secure Boot enrollment**, N4), pre-installs the flatpak set into `/var/lib/flatpak`, adds `dracut-live`/`livesys-scripts` for live-boot, and writes `iso.yaml` |
+| `iso/build-iso.sh` | wrapper: get the base image into root's podman storage, generate a per-build LUKS bootstrap passphrase, build the installer image, run pinned Titanoboa against it, collect the ISO |
+| `files/base/usr/libexec/svk/luks-tpm-enroll` (+ `.service`) | first-boot: TPM2 auto-unlock enrollment + on-screen per-machine recovery key (shipped in the base image, not the ISO) |
 | `.github/workflows/iso.yml` | manual `workflow_dispatch` build of either/both flavors |
 
 ## Dependencies
@@ -66,6 +67,46 @@ iso/build-iso.sh student ghcr     # or: iso/build-iso.sh student local
 
 ISO lands at `iso/svk-student-<version>.iso`.
 
+## Install automation & disk encryption
+
+The kickstart pre-answers every Anaconda step, so the two flavors differ only in
+whether an account is asked for:
+
+| | student | staff |
+|---|---|---|
+| Delivery | complete kickstart via `inst.ks=` (`svk-student.ks`) | default `interactive-defaults.ks` |
+| Manual steps | **none** — installs and reboots on its own | **only** Create Account (username + password) |
+| Account | baked `opilas` (sysusers.d); root locked | created on the WebUI Accounts page |
+| Language / keyboard | Finnish (`fi_FI.UTF-8`, `fi` layout) | same |
+| Timezone | Europe/Helsinki | same |
+| Disk | wipe all disks → btrfs autopart, LUKS-encrypted | same |
+
+**Disk encryption (LUKS + TPM2).** Anaconda creates the LUKS container with a
+throwaway *bootstrap* passphrase generated fresh per ISO build (`build-iso.sh`
+prints it + writes `*.luks-bootstrap.txt`; both gitignored) and stashed on the
+target as `/etc/svk/luks-bootstrap`.
+
+The **TPM2 is pre-enrolled at install time** (`svk-luks-tpm.ks` `%post`, bound to
+**PCR 7** — the only PCR that's identical in the installer and the installed system
+on the same machine), and the kickstart adds `rd.luks.options=tpm2-device=auto` to
+the kernel args. So a machine with a TPM **auto-unlocks from the very first boot**,
+no passphrase prompt. On that first boot, `svk-luks-tpm-enroll.service` (from the
+base image):
+
+1. enrolls a **unique per-machine recovery key**, shown once on `tty1` with a QR
+   code — **photograph it during provisioning; it can never be retrieved again**;
+2. confirms the TPM2 enrollment (or enrolls it as a fallback if install-time failed);
+3. adds `tpm2-device=auto` to `/etc/crypttab` (belt-and-suspenders);
+4. **wipes the bootstrap slot** and deletes the file, so nothing shipped in the ISO
+   can unlock a deployed machine.
+
+It self-disables afterwards and is a no-op on unencrypted (dev/local) installs. The
+per-build bootstrap passphrase is a **fallback**: only a machine with no TPM (or a
+PCR mismatch) stops at the disk-unlock prompt, where the admin types it once.
+⚠️ **Not yet validated on hardware** — confirm a TPM machine auto-unlocks (test with
+`swtpm` in a UEFI VM; see below). If it still prompts every boot despite a TPM, the
+initramfs isn't honouring `rd.luks.options`; the recovery key always works meanwhile.
+
 ## How updates work after install (D7 — the LAN mirror)
 
 The baked flatpaks live in mutable `/var/lib/flatpak` and update on flatpak's own
@@ -81,6 +122,11 @@ item; it repurposes the GPG-key-extraction logic from the old
       which silently rode upstream's breaking container-native rewrite).
 - [ ] **Validate an end-to-end build** fix Anaconda profile / kickstart
       as needed.
+- [x] **Install automation** — Finnish locale/keyboard, Helsinki TZ, full-disk
+      LUKS auto-partition; student zero-click, staff account-only. *(code; needs
+      the on-hardware validation above.)*
+- [ ] **Validate TPM2 auto-unlock + on-screen recovery key** on real hardware
+      (see "Install automation & disk encryption").
 - [x] **Per-image branding** — done: student/staff stamp their own os-release via
       `/usr/libexec/svk/stamp-os-release`, so fastfetch/tooling report `svk-student` /
       `svk-staff` and the channel build version (not `svk-base`).

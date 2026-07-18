@@ -33,6 +33,23 @@ flatpaks + live-boot support, instead of Titanoboa injecting a hook).
 
 - [ ] Run one ISO build (`just iso student local`) and fix any
       Anaconda/Titanoboa plumbing it surfaces.
+- [x] **Unattended install automation** (`iso/installer/build.sh`): Finnish
+      language + keyboard, Europe/Helsinki timezone, full-disk btrfs auto-partition
+      with LUKS encryption — all preset in the kickstart so nothing prompts.
+      **student** = zero-click (complete kickstart via `inst.ks=`, baked `opilas`,
+      locked root, auto-reboot); **staff** = same but the Create Account page is
+      the one manual step (username + password), delivered via
+      `interactive-defaults.ks`. *Needs on-hardware validation (below).*
+- [ ] **Validate on hardware: TPM2 auto-unlock.** LUKS is created with a throwaway
+      bootstrap passphrase; the TPM2 is **pre-enrolled at install time**
+      (`svk-luks-tpm.ks` `%post`, PCR 7) and the kickstart adds
+      `rd.luks.options=tpm2-device=auto` to the kernel args, so a TPM machine should
+      **auto-unlock from first boot** with no prompt. The first-boot
+      `svk-luks-tpm-enroll.service` (`files/base/usr/libexec/svk/luks-tpm-enroll`)
+      then shows a **per-machine recovery key + QR on tty1** (photograph it — shown
+      once, never retrievable) and wipes the bootstrap slot. **Confirm auto-unlock**
+      (test with `swtpm` in a UEFI VM first). The bootstrap passphrase is only a
+      fallback for TPM-less machines.
 - [x] Pin Titanoboa to a real tested commit in `iso/build-iso.sh` (was `@main`).
 - [x] **Per-image branding + metadata** — done. Each image stamps its own os-release
       (`NAME`/`IMAGE_ID`/`IMAGE_VERSION`) **and** `/usr/share/svk-os/image-info.json`
@@ -97,6 +114,13 @@ flatpaks + live-boot support, instead of Titanoboa injecting a hook).
 
 Build a student ISO, install one laptop, and verify **on real hardware**:
 
+- [ ] **Zero-click student install**: booting the ISO partitions, encrypts,
+      installs and reboots with **no prompts** (Finnish UI + `fi` keyboard,
+      Helsinki time). For the **staff** ISO: the *only* prompt is Create Account.
+- [ ] **Disk encryption + TPM**: at first boot the recovery key + QR appear on the
+      console (photograph + file it); after acknowledging, subsequent boots
+      **auto-unlock via the TPM with no passphrase prompt**; the bootstrap slot is
+      gone (`systemd-cryptenroll --list` / `cryptsetup luksDump`).
 - [ ] **Autologin** into `opilas` (sysusers-locked account — confirm GDM autologin
       works), **home reset** on logout, dconf/polkit **lockdown**.
 - [ ] **Baked flatpaks present offline** (`flatpak list --system`: Firefox,

@@ -15,8 +15,13 @@ ARG BASE_IMAGE
 FROM ${BASE_IMAGE}
 ARG FLAVOR
 ARG IMAGE_REF
+# Temporary LUKS passphrase to create the encrypted disk at install; generated
+# fresh per ISO build by iso/build-iso.sh and wiped on the target at first boot.
+ARG LUKS_BOOTSTRAP_PASSPHRASE
 
 COPY flatpaks/ /tmp/flatpaks/
 COPY iso/installer/build.sh /tmp/build.sh
-RUN FLAVOR="${FLAVOR}" IMAGE_REF="${IMAGE_REF}" bash /tmp/build.sh \
+RUN FLAVOR="${FLAVOR}" IMAGE_REF="${IMAGE_REF}" \
+    LUKS_BOOTSTRAP_PASSPHRASE="${LUKS_BOOTSTRAP_PASSPHRASE}" \
+    bash /tmp/build.sh \
     && rm -rf /tmp/build.sh /tmp/flatpaks

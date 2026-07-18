@@ -13,6 +13,9 @@ systemctl enable avahi-daemon.service
 systemctl enable sshd.service
 systemctl enable svk-power-profile.service
 systemctl enable svk-claim-hostname.service
+# First-boot TPM2 auto-unlock enrollment + on-screen LUKS recovery key. No-op on
+# unencrypted installs (ConditionPathExists guards it); self-disables once enrolled.
+systemctl enable svk-luks-tpm-enroll.service
 echo "::endgroup::"
 
 echo "::group:: NSS mDNS — make .local names resolve"

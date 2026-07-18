@@ -16,6 +16,8 @@ secrets/*
 output/
 *.iso
 iso/.build/
+# The per-build LUKS bootstrap passphrase written next to each ISO — a secret.
+*.luks-bootstrap.txt
 
 # The real student Wi-Fi connection profile holds a plaintext PSK — same
 # secrets-stay-local rule as everything under secrets/. Only the .example

@@ -1,0 +1,28 @@
+# Enrolls TPM2 auto-unlock and shows a per-machine LUKS recovery key on the first
+# boot after an ISO install. Enabled in build/20-services.sh; the actual work +
+# guards live in /usr/libexec/svk/luks-tpm-enroll. ConditionPathExists makes it a
+# no-op on unencrypted (dev/local) installs and on every boot after enrollment.
+[Unit]
+Description=svk: enroll TPM2 auto-unlock + show LUKS recovery key (first boot)
+ConditionPathExists=/etc/svk/luks-bootstrap
+After=basic.target
+Wants=basic.target
+# Hold the login screen until the recovery key has been shown/acknowledged, so it
+# is visible on the console during provisioning instead of being hidden by GDM.
+Before=display-manager.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# Run on the primary VT so the printed recovery key + QR code are on screen and
+# the ENTER acknowledgement can be read.
+StandardInput=tty
+StandardOutput=tty
+StandardError=journal+console
+TTYPath=/dev/tty1
+TTYReset=yes
+TTYVHangup=yes
+ExecStart=/usr/libexec/svk/luks-tpm-enroll
+
+[Install]
+WantedBy=multi-user.target

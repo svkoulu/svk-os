@@ -1,0 +1,137 @@
+#!/usr/bin/bash
+# luks-tpm-enroll — first boot after an ISO install. Turns the freshly-installed
+# LUKS root (created by Anaconda with a throwaway "bootstrap" passphrase, see
+# iso/installer/build.sh) into a disk that:
+#
+#   1. auto-unlocks via the TPM2, so students/staff never type a passphrase; and
+#   2. has a UNIQUE per-machine recovery key as the only human fallback.
+#
+# The recovery key is printed ONCE on the console (tty1, with a QR code) for the
+# admin to photograph during provisioning — it can never be retrieved again. The
+# bootstrap passphrase slot is then wiped, so nothing that ships in the ISO can
+# unlock a deployed machine.
+#
+# Ordering note: the TPM is normally pre-enrolled at install time (svk-luks-tpm.ks
+# %post), so the FIRST boot already auto-unlocks — this service then just adds the
+# recovery key and wipes the bootstrap slot. If the TPM couldn't be enrolled at
+# install (no TPM, or a PCR mismatch), the initramfs instead prompts for the
+# per-build bootstrap passphrase (printed by iso/build-iso.sh); after the admin
+# types it once, this service enrolls the TPM as a fallback.
+#
+# Guarded by /etc/svk/luks-bootstrap (dropped by the kickstart): absent on
+# non-encrypted (dev/local) installs and on every boot after the first, so the
+# unit's ConditionPathExists makes this a cheap no-op thereafter.
+#
+# NOTE (validate on real hardware): TPM2 auto-unlock relies on systemd-cryptsetup
+# honouring `tpm2-device=auto` in /etc/crypttab. If a machine still prompts for the
+# recovery key every boot, the initramfs isn't reading this crypttab — the fix is
+# to add `rd.luks.options=tpm2-device=auto` to the kernel args. The recovery key
+# shown here always works regardless.
+set -euo pipefail
+
+BOOTSTRAP=/etc/svk/luks-bootstrap
+STAMP=/var/lib/svk/.luks-tpm-enrolled
+SERVICE=svk-luks-tpm-enroll.service
+
+log()  { echo "luks-tpm-enroll: $*"; }
+done_disable() { systemctl disable "$SERVICE" >/dev/null 2>&1 || true; }
+
+# No bootstrap file => non-encrypted install or already enrolled: nothing to do.
+if [ ! -f "$BOOTSTRAP" ]; then
+    log "no ${BOOTSTRAP}; nothing to enroll."
+    done_disable
+    exit 0
+fi
+
+# Locate the LUKS backing device from the first real crypttab line. Anaconda writes
+#   luks-<uuid>  UUID=<uuid>  none  <options>
+crypt_line="$(awk '!/^#/ && NF {print; exit}' /etc/crypttab || true)"
+luks_uuid="$(awk '{print $2}' <<<"$crypt_line" | sed 's/^UUID=//')"
+dev="/dev/disk/by-uuid/${luks_uuid}"
+if [ -z "$luks_uuid" ] || [ ! -e "$dev" ]; then
+    log "no LUKS device found in /etc/crypttab; skipping (assuming unencrypted)."
+    rm -f "$BOOTSTRAP"
+    done_disable
+    exit 0
+fi
+
+pass="$(cat "$BOOTSTRAP")"
+
+# 1. Per-machine recovery key FIRST, so a human fallback exists before we touch
+#    anything else. systemd-cryptenroll prints the key to stdout.
+log "enrolling a recovery key..."
+recovery="$(PASSWORD="$pass" systemd-cryptenroll --recovery-key "$dev")"
+
+# 2. TPM2 for automatic unlock (PCR 7 = firmware/secure-boot state). Normally the
+#    install-time %post already enrolled it — detect that so we don't stack a second
+#    slot, and only enroll here as the fallback (no TPM at install, or it failed).
+tpm_ok=1
+if systemd-cryptenroll "$dev" 2>/dev/null | grep -qiw tpm2; then
+    log "TPM2 already enrolled (install-time); keeping it."
+elif PASSWORD="$pass" systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=7 "$dev"; then
+    log "TPM2 enrolled."
+else
+    tpm_ok=0
+    log "WARNING: TPM2 enrollment failed — will retry on next boot."
+fi
+
+# 3. Ask systemd-cryptsetup to try the TPM at boot: add tpm2-device=auto to the
+#    crypttab options field (field 4; 'none' keyfile stays in field 3).
+if [ "$tpm_ok" = 1 ] && ! grep -q 'tpm2-device=' /etc/crypttab; then
+    awk 'BEGIN{OFS=" "}
+         /^#/ || NF==0 {print; next}
+         {opts=(NF>=4 ? $4 : "");
+          opts=(opts=="" ? "tpm2-device=auto" : "tpm2-device=auto," opts);
+          print $1,$2,$3,opts}' /etc/crypttab >/etc/crypttab.svk-new \
+        && mv /etc/crypttab.svk-new /etc/crypttab
+fi
+
+# 4. Show the recovery key on the console and wait for the admin to record it.
+qr="$(qrencode -t ANSIUTF8 <<<"$recovery" 2>/dev/null || true)"
+cat <<BANNER
+
+################################################################################
+#                          SVK DISK RECOVERY KEY                               #
+#                                                                              #
+#  Record this key now. It is shown ONCE and CANNOT be retrieved later.        #
+#  It is the ONLY fallback if the TPM ever stops unlocking this disk.          #
+################################################################################
+
+    Machine : $(hostnamectl --static 2>/dev/null || hostname)
+    Disk    : ${dev}
+
+    RECOVERY KEY:
+
+        ${recovery}
+
+${qr}
+
+################################################################################
+BANNER
+if [ "$tpm_ok" = 1 ]; then
+    echo "  TPM2 auto-unlock: ENROLLED (this disk should unlock without a prompt)."
+else
+    echo "  TPM2 auto-unlock: FAILED — you will be asked for this key each boot until"
+    echo "  it succeeds (it retries on the next boot). Keep the key safe."
+fi
+echo
+# Block (with a generous cap) so provisioning can't race past the key. If nobody
+# is present the machine still proceeds after the timeout rather than hanging.
+read -r -t 900 -p "  Press ENTER once you have recorded the recovery key... " _ || \
+    log "no acknowledgement within timeout; continuing."
+
+# 5. Wipe the shared bootstrap passphrase so the ISO's secret no longer unlocks
+#    anything. Only once TPM enrollment succeeded (else keep it for the retry).
+if [ "$tpm_ok" = 1 ]; then
+    log "wiping the bootstrap passphrase slot..."
+    PASSWORD="$pass" systemd-cryptenroll --wipe-slot=password "$dev" || \
+        log "WARNING: could not wipe the bootstrap slot; do so manually."
+    rm -f "$BOOTSTRAP"
+    mkdir -p "$(dirname "$STAMP")"
+    : >"$STAMP"
+    done_disable
+    log "done."
+else
+    # Leave BOOTSTRAP in place; the service stays enabled to retry next boot.
+    log "TPM not enrolled; leaving bootstrap in place to retry."
+fi

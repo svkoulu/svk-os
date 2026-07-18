@@ -33,7 +33,9 @@ dnf5 install -y \
     wget \
     ncdu \
     fd-find \
-    glibc-langpack-fi
+    glibc-langpack-fi \
+    qrencode \
+    tpm2-tools
     # Print stack — add exactly what the school needs, e.g.:
     #   cups-filters gutenprint hplip
     # <<ADD SYSTEM PACKAGES HERE>>  (school fonts, tools, ...)
