@@ -27,7 +27,37 @@ Titanoboa's own interface changed upstream.
 | `iso/build-iso.sh` | wrapper: get the base image into root's podman storage, build the installer image, run pinned Titanoboa against it, collect the ISO |
 | `.github/workflows/iso.yml` | manual `workflow_dispatch` build of either/both flavors |
 
-## Build locally (needs a real host, root podman, AC power)
+## Dependencies
+
+Beyond the general build dependencies in the top-level `README.md`
+(`podman`, `just`), building an ISO also needs:
+
+| Tool | Used for |
+|---|---|
+| `git` | cloning the pinned Titanoboa commit |
+| `rsync` | copying that clone into `iso/.build/<flavor>/` |
+| `sudo`, password-authenticated | root podman for the installer-image build (`--cap-add sys_admin`) and Titanoboa's own privileged squashfs/loop-device work |
+
+Install on Fedora: `sudo dnf install git rsync`.
+On openSUSE Tumbleweed: `sudo zypper install git rsync`.
+
+**Environment requirements** (learned the hard way — see git history if these
+ever need re-diagnosing):
+- Run this from a **genuine host shell**, not from inside a distrobox/toolbox/
+  devcontainer that bridges commands out to the host (e.g. via
+  `distrobox-host-exec`). Unprivileged `podman` calls work fine through such a
+  bridge, but `sudo podman ...` doesn't — root can't reach back into the
+  bridge's D-Bus session, so every privileged step fails with either
+  `command not found` or an unprompted `a password is required`, no matter how
+  correct the password is. If `just` itself was installed via
+  `distrobox export`, invoking it *still* runs the recipe inside the
+  container even from a real host terminal — run `bash iso/build-iso.sh ...`
+  directly instead in that case.
+- A few GB of free disk headroom (`podman system df` / `podman system prune`
+  to check/reclaim) — the installer image build and the squashfs/ISO output
+  are each multi-GB.
+
+## Build locally
 
 ```bash
 # after svk-student / svk-staff are pushed (or built locally with :latest):

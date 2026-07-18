@@ -58,14 +58,19 @@ archived/                                    # the previous FROM-bluefin impleme
 | `cosign` | `just cosign-keygen` (generate the signing keypair) |
 | `butane` | `just server-ign` (compile the uCore Ignition config) |
 | `ShellCheck` | `just lint` (optional; lints the build scripts) |
+| `git` | `just iso` (clones the pinned Titanoboa) |
+| `rsync` | `just iso` (copies the Titanoboa clone into `iso/.build/`) |
 
 `bootc` itself does **not** need to be installed on the host — it ships in the
 base image, so the in-build `bootc container lint` just works.
 
-Install on Fedora: `sudo dnf install podman just cosign butane ShellCheck`.
-On openSUSE Tumbleweed: `sudo zypper install podman just cosign butane ShellCheck`.
+Install on Fedora: `sudo dnf install podman just cosign butane ShellCheck git rsync`.
+On openSUSE Tumbleweed: `sudo zypper install podman just cosign butane ShellCheck git rsync`.
 On Debian/Ubuntu `just`/`butane`/`cosign` aren't in the default repos — see each
 project's releases page (`butane` and `cosign` ship static binaries).
+
+Building an **ISO** (`just iso`) has two extra requirements beyond the table
+above — see `iso/README.md` for the full list.
 
 Building an **installer ISO** additionally needs a beefy host with root `podman`
 and plenty of disk — it's heavy; prefer the `iso` CI workflow (see below).
