@@ -18,6 +18,11 @@ on:
         type: choice
         default: both
         options: [both, svk-student, svk-staff]
+      channel:
+        description: Which channel to bake (stable needs at least one cut git tag).
+        type: choice
+        default: stable
+        options: [stable, testing]
 
 env:
   REGISTRY: ghcr.io
@@ -66,12 +71,12 @@ jobs:
 
       - name: Build ISO with Titanoboa
         if: steps.gate.outputs.run == 'true'
-        run: bash iso/build-iso.sh "${{ matrix.flavor }}" ghcr
+        run: bash iso/build-iso.sh "${{ matrix.flavor }}" ghcr "${{ inputs.channel }}"
 
       - name: Upload ISO artifact
         if: steps.gate.outputs.run == 'true'
         uses: actions/upload-artifact@v7
         with:
-          name: svk-${{ matrix.flavor }}-iso
+          name: svk-${{ matrix.flavor }}-${{ inputs.channel }}-iso
           path: iso/svk-${{ matrix.flavor }}-*.iso
           if-no-files-found: error

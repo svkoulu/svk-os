@@ -48,11 +48,12 @@ build-desktops: build-base build-staff build-student
 [group('build')]
 build-all: build-desktops build-server
 
-# Build an installer ISO with Titanoboa. flavor=student|staff  repo=local|ghcr.
+# Build an installer ISO with Titanoboa. flavor=student|staff  repo=local|ghcr
+# channel=stable|testing (only meaningful for repo=ghcr; stable needs a cut git tag).
 # Needs a real host with root podman + AC power (heavy). NOT yet validated.
 [group('build')]
-iso flavor="student" repo="local":
-    iso/build-iso.sh {{ flavor }} {{ repo }}
+iso flavor="student" repo="local" channel="stable":
+    iso/build-iso.sh {{ flavor }} {{ repo }} {{ channel }}
 
 # Boot the newest locally-built installer ISO in a throwaway VM to test the installer
 # end-to-end (install -> reboot -> first boot). Uses the qemux/qemu container, so it

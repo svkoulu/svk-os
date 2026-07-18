@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # build-iso.sh — build one svk desktop ISO with Titanoboa (offline flatpak bake).
 #
-#   Usage: iso/build-iso.sh <flavor> [repo]
-#     flavor : student | staff
-#     repo   : ghcr (default) | local
+#   Usage: iso/build-iso.sh <flavor> [repo] [channel]
+#     flavor  : student | staff
+#     repo    : ghcr (default) | local
+#     channel : stable (default) | testing — only meaningful for repo=ghcr
 #
 # What it does (adapted from projectbluefin/iso's hack/local-iso-build.sh):
 #   1. Assembles the flavor's flatpak list  = flatpaks/common.list + <flavor>.list
@@ -27,14 +28,18 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 NAMESPACE="${NAMESPACE:-svkoulu}"
 REGISTRY="${REGISTRY:-ghcr.io}"
 
-flavor="${1:?usage: build-iso.sh <student|staff> [ghcr|local]}"
+flavor="${1:?usage: build-iso.sh <student|staff> [ghcr|local] [stable|testing]}"
 repo="${2:-ghcr}"
+channel="${3:-stable}"
 case "$flavor" in student|staff) ;; *) echo "flavor must be student|staff" >&2; exit 1 ;; esac
+case "$channel" in stable|testing) ;; *) echo "channel must be stable|testing" >&2; exit 1 ;; esac
 
-# The fleet installs the STABLE channel, so ghcr ISOs bake :stable (needs at least
-# one cut git tag). Override IMAGE_REF in the env to bake a different tag/channel.
+# The fleet installs the STABLE channel, so ghcr ISOs bake :stable by default (needs
+# at least one cut git tag) — pass "testing" to bake :testing (built from main)
+# instead, e.g. to validate the pipeline before a first release. Override IMAGE_REF
+# in the env to bake an arbitrary tag.
 case "$repo" in
-    ghcr)  IMAGE_REF="${IMAGE_REF:-${REGISTRY}/${NAMESPACE}/svk-${flavor}:stable}" ;;
+    ghcr)  IMAGE_REF="${IMAGE_REF:-${REGISTRY}/${NAMESPACE}/svk-${flavor}:${channel}}" ;;
     local) IMAGE_REF="localhost/svk-${flavor}:latest" ;;
     *) echo "repo must be ghcr|local" >&2; exit 1 ;;
 esac
