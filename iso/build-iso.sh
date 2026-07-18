@@ -65,12 +65,15 @@ case "$repo" in
 esac
 
 # --- 1. Make sure BASE_IMAGE is in root's podman storage -----------------------
-# Titanoboa and the installer-image build both need root podman.
+# Titanoboa and the installer-image build both need root podman. For repo=local
+# this always re-copies rather than checking "does root already have this tag" —
+# :latest is a moving tag, so a stale check would silently keep building the ISO
+# from whatever old content a previous run last copied in, never picking up a
+# rebuilt local image.
 if [ "$repo" = "ghcr" ]; then
     sudo "$PODMAN" pull "$BASE_IMAGE"
 else
-    sudo "$PODMAN" image exists "$BASE_IMAGE" || \
-        podman image scp "$(id -un)@localhost::${BASE_IMAGE}" "root@localhost::${BASE_IMAGE}"
+    podman image scp "$(id -un)@localhost::${BASE_IMAGE}" "root@localhost::${BASE_IMAGE}"
 fi
 
 # --- 2. Build the throwaway installer image ------------------------------------
