@@ -51,7 +51,9 @@ RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
 
 # Re-stamp os-release with svk-student's own identity + version (the shared stamper
 # ships in svk-base at /usr/libexec/svk/) so this image reports svk-student, not svk-base.
-RUN VERSION="${VERSION}" IMAGE_NAME="svk-student" IMAGE_PRETTY_NAME="SVK Student" \
+# PRETTY_NAME becomes "SVK OS (student-<version>)" — the only field the Anaconda
+# WebUI installer (and GNOME's About page) actually displays.
+RUN VERSION="${VERSION}" IMAGE_NAME="svk-student" IMAGE_FLAVOR="student" \
     /usr/libexec/svk/stamp-os-release
 
 RUN bootc container lint --fatal-warnings

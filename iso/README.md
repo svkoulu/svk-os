@@ -141,7 +141,9 @@ item; it repurposes the GPG-key-extraction logic from the old
 - [ ] **Validate TPM2 auto-unlock + on-screen recovery key** on real hardware
       (see "Install automation & disk encryption").
 - [x] **Per-image branding** — done: student/staff stamp their own os-release via
-      `/usr/libexec/svk/stamp-os-release`, so fastfetch/tooling report `svk-student` /
-      `svk-staff` and the channel build version (not `svk-base`).
+      `/usr/libexec/svk/stamp-os-release`. `IMAGE_ID` reports `svk-student` /
+      `svk-staff` (not `svk-base`) for tooling; `PRETTY_NAME` (what fastfetch and
+      the Anaconda WebUI actually display) carries flavor + channel + version,
+      e.g. `SVK OS (staff-stable-1-20260719)`.
 - [ ] **LAN-mirror `flatpak update` wiring** (D7) — the client-side remote setup.
 - [ ] Confirm the kiosk autologin (`opilas`, sysusers-locked) works post-install.

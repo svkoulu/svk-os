@@ -12,18 +12,46 @@
 # path/vendor). Nothing in the update path reads it — it's metadata for our own
 # tooling/introspection (channel, version, release line, base) via `jq`.
 #
-#   IMAGE_NAME        (required)  e.g. svk-base / svk-student / svk-staff
-#   VERSION           (optional)  build version: stable-<N>-<date> | testing-<date>
-#                                 | local-<date> (blank -> os-release keeps base value)
-#   IMAGE_VENDOR      (default svkoulu)
-#   IMAGE_PRETTY_NAME (default "SVK OS")
+#   IMAGE_NAME    (required)  e.g. svk-base / svk-student / svk-staff
+#   IMAGE_FLAVOR  (optional)  short slug folded into PRETTY_NAME, e.g. staff | student
+#                             (blank for svk-base, which has no flavor)
+#   VERSION       (optional)  build version: stable-<N>-<date> | testing-<date>
+#                             | local-<date> (blank -> no version in PRETTY_NAME)
+#   IMAGE_VENDOR  (default svkoulu)
+#
+# NAME stays the constant OS family name "svk-os" across every image (base,
+# student, staff) — per os-release(5) it's meant to identify the OS without a
+# variant/version component, same as Fedora's own NAME="Fedora Linux" doesn't
+# vary between Silverblue/Workstation/Server. The per-image identity that field
+# used to carry (svk-staff / svk-student / svk-base) lives in IMAGE_ID instead —
+# os-release(5)'s dedicated field for exactly this, already what bootc/ostree
+# tooling looks at.
+#
+# PRETTY_NAME is always "SVK OS", plus a "(<flavor>-<version>)" parenthetical when
+# either is set, e.g. "SVK OS (staff-stable-1-20260719)". This is the ONLY field
+# the Anaconda WebUI installer (and GNOME's About page) actually reads for
+# display — it never looks at IMAGE_VERSION, IMAGE_ID, or Fedora's own VERSION_ID,
+# so the flavor/channel/version have to live in PRETTY_NAME itself or they never
+# become visible anywhere a human looks. iso/installer/build.sh builds the
+# identical string for the GRUB boot-menu entries, independently (no os-release to
+# read yet at that point) — keep the two in sync if this format ever changes.
 set -euo pipefail
 
 : "${IMAGE_NAME:?stamp-os-release: IMAGE_NAME is required}"
+IMAGE_FLAVOR="${IMAGE_FLAVOR:-}"
 VERSION="${VERSION:-}"
 IMAGE_VENDOR="${IMAGE_VENDOR:-svkoulu}"
-IMAGE_PRETTY_NAME="${IMAGE_PRETTY_NAME:-SVK OS}"
 REPO_URL="https://github.com/svkoulu/svk-os"
+
+PAREN=""
+if [ -n "${IMAGE_FLAVOR}" ] && [ -n "${VERSION}" ]; then
+	PAREN=" (${IMAGE_FLAVOR}-${VERSION})"
+elif [ -n "${IMAGE_FLAVOR}" ]; then
+	PAREN=" (${IMAGE_FLAVOR})"
+elif [ -n "${VERSION}" ]; then
+	PAREN=" (${VERSION})"
+fi
+DISPLAY_NAME="SVK OS${PAREN}"
 
 OS_RELEASE="/usr/lib/os-release"
 
@@ -37,8 +65,8 @@ set_kv() {
 	fi
 }
 
-set_kv PRETTY_NAME       "${IMAGE_PRETTY_NAME}"
-set_kv NAME              "${IMAGE_NAME}"
+set_kv PRETTY_NAME       "${DISPLAY_NAME}"
+set_kv NAME              "svk-os"
 set_kv IMAGE_ID          "${IMAGE_NAME}"
 set_kv IMAGE_VENDOR      "${IMAGE_VENDOR}"
 [ -n "${VERSION}" ] && set_kv IMAGE_VERSION "${VERSION}"
@@ -74,4 +102,4 @@ cat >/usr/share/svk-os/image-info.json <<EOF
 }
 EOF
 
-echo "stamped ${OS_RELEASE} + svk-os/image-info.json: NAME=${IMAGE_NAME} VERSION=${VERSION:-<none>} channel=${channel:-<none>}"
+echo "stamped ${OS_RELEASE} + svk-os/image-info.json: IMAGE_ID=${IMAGE_NAME} VERSION=${VERSION:-<none>} channel=${channel:-<none>}"

@@ -13,6 +13,5 @@ set -euo pipefail
 
 IMAGE_NAME="${IMAGE_NAME:-svk-base}" \
 IMAGE_VENDOR="${IMAGE_VENDOR:-svkoulu}" \
-IMAGE_PRETTY_NAME="SVK OS" \
 VERSION="${VERSION:-}" \
 	/usr/libexec/svk/stamp-os-release

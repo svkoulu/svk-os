@@ -77,6 +77,12 @@ else
 fi
 
 # --- 2. Build the throwaway installer image ------------------------------------
+# Read BASE_IMAGE's own version label (e.g. stable-1-20260719 / testing-20260719 /
+# local-20260719) so the GRUB boot-menu entry can show the exact version being
+# installed, not just the rolling channel alias in IMAGE_REF. Same label build-iso
+# step 5 uses to name the ISO file — read once here, reused there.
+IMG_VERSION="$(sudo "$PODMAN" inspect --format '{{index .Config.Labels "org.opencontainers.image.version"}}' "$BASE_IMAGE" 2>/dev/null || true)"
+
 # Temporary LUKS passphrase used only to create the encrypted disk during install.
 # Fresh per build so it isn't a committed/reused secret; the target's first-boot
 # svk-luks-tpm-enroll.service wipes this slot after enrolling TPM2 + a per-machine
@@ -88,6 +94,7 @@ sudo "$PODMAN" build \
     --build-arg BASE_IMAGE="$BASE_IMAGE" \
     --build-arg FLAVOR="$flavor" \
     --build-arg IMAGE_REF="$IMAGE_REF" \
+    --build-arg VERSION="$IMG_VERSION" \
     --build-arg LUKS_BOOTSTRAP_PASSPHRASE="$LUKS_BOOTSTRAP_PASSPHRASE" \
     -t "$INSTALLER_IMAGE" \
     -f "${REPO_ROOT}/iso/installer/Containerfile" \
@@ -134,7 +141,7 @@ iso_path="$(env TITANOBOA_CTR_IMAGE="$INSTALLER_IMAGE" PODMAN="$PODMAN" ./main.s
 # Name the ISO after the exact image version it targets (the image.version label /
 # os-release IMAGE_VERSION, e.g. 1-20260718) so the ISO, the image tag and os-release
 # all report one matching version. Local dev images may carry none -> fall back to date.
-img_ver="$(sudo "$PODMAN" inspect --format '{{index .Config.Labels "org.opencontainers.image.version"}}' "$BASE_IMAGE" 2>/dev/null || true)"
+img_ver="$IMG_VERSION"
 [ -n "$img_ver" ] || img_ver="$(date +%Y%m%d)"
 out="${REPO_ROOT}/iso/svk-${flavor}-${img_ver}.iso"
 sudo chown "$(id -u):$(id -g)" "$iso_path"

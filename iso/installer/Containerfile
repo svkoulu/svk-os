@@ -15,13 +15,17 @@ ARG BASE_IMAGE
 FROM ${BASE_IMAGE}
 ARG FLAVOR
 ARG IMAGE_REF
+# BASE_IMAGE's own org.opencontainers.image.version (e.g. stable-1-20260719),
+# read by iso/build-iso.sh before this build. Blank for a local image with no
+# version label. Used only to name the GRUB boot-menu entry.
+ARG VERSION
 # Temporary LUKS passphrase to create the encrypted disk at install; generated
 # fresh per ISO build by iso/build-iso.sh and wiped on the target at first boot.
 ARG LUKS_BOOTSTRAP_PASSPHRASE
 
 COPY flatpaks/ /tmp/flatpaks/
 COPY iso/installer/build.sh /tmp/build.sh
-RUN FLAVOR="${FLAVOR}" IMAGE_REF="${IMAGE_REF}" \
+RUN FLAVOR="${FLAVOR}" IMAGE_REF="${IMAGE_REF}" VERSION="${VERSION}" \
     LUKS_BOOTSTRAP_PASSPHRASE="${LUKS_BOOTSTRAP_PASSPHRASE}" \
     bash /tmp/build.sh \
     && rm -rf /tmp/build.sh /tmp/flatpaks

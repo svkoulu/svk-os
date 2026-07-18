@@ -126,7 +126,7 @@ Two channels, ublue-style:
 - **`:stable`** — what the fleet tracks. Built from **git tags** (cut a tag `N` → publishes `:stable`, `:stable-N`, `:stable-N-YYYYMMDD`). The weekly cron rebuilds the latest tag for security fixes **without** pulling in unreleased code, so the fleet stays patched but only advances features when you tag. Pin a machine to a release line with `:stable-N` (it won't auto-jump to `N+1`).
 - **`:testing`** (alias `:latest`) — built from every push to `main` (and weekly). For test machines; carries `testing-YYYYMMDD` so a build is self-evidently a dev image.
 
-The version (`stable-N-YYYYMMDD` / `testing-YYYYMMDD`) is identical across the image tag, os-release `IMAGE_VERSION`, the `org.opencontainers.image.version` label, `/usr/share/svk-os/image-info.json`, and the ISO filename.
+The version (`stable-N-YYYYMMDD` / `testing-YYYYMMDD`) is identical across the image tag, os-release `IMAGE_VERSION`, the `org.opencontainers.image.version` label, `/usr/share/svk-os/image-info.json`, and the ISO filename. It's also folded into os-release `PRETTY_NAME` (e.g. `SVK OS (staff-testing-20260719)`) and the ISO's GRUB boot-menu entry, since PRETTY_NAME is the one field the Anaconda WebUI installer and GNOME's About page actually display.
 
 **Server** — uCore installs via Ignition, not an ISO:
 
