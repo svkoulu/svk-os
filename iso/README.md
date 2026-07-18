@@ -103,9 +103,22 @@ base image):
 It self-disables afterwards and is a no-op on unencrypted (dev/local) installs. The
 per-build bootstrap passphrase is a **fallback**: only a machine with no TPM (or a
 PCR mismatch) stops at the disk-unlock prompt, where the admin types it once.
-⚠️ **Not yet validated on hardware** — confirm a TPM machine auto-unlocks (test with
-`swtpm` in a UEFI VM; see below). If it still prompts every boot despite a TPM, the
-initramfs isn't honouring `rd.luks.options`; the recovery key always works meanwhile.
+⚠️ **Not yet validated on hardware** — confirm a TPM machine auto-unlocks (test it in
+a VM with an emulated TPM first: `just run-iso <flavor>`, see below). If it still prompts
+every boot despite a TPM, the initramfs isn't honouring `rd.luks.options`; the recovery
+key always works meanwhile.
+
+## Test the ISO in a VM (`just run-iso`)
+
+`just run-iso <flavor>` boots the newest locally-built `iso/svk-<flavor>-*.iso` in a
+throwaway VM to exercise the whole install → reboot → first-boot path end-to-end,
+**including LUKS + TPM auto-unlock**. It runs the [`qemux/qemu`](https://github.com/qemus/qemu)
+container (needs `/dev/kvm` + `podman`, but **no host qemu or swtpm**): `BOOT_MODE=uefi`
+gives it an OVMF/UEFI firmware and `TPM=Y` gives it an emulated **TPM 2.0**, so the
+install-time `%post` enrollment binds to PCR 7 and the reboot should auto-unlock with
+no passphrase prompt — the same flow as real hardware. The install disk is ephemeral
+(discarded on exit); the Anaconda/boot web console is at `http://localhost:8006`
+(auto-opened). Build the ISO first with `just iso <flavor> local`.
 
 ## How updates work after install (D7 — the LAN mirror)
 

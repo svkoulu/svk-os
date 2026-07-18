@@ -2,9 +2,9 @@
 # Run `just` with no arguments to list recipes. CI does NOT use this file
 # (it builds via .github/actions/build-image); this is for local work.
 
-registry   := "ghcr.io"
-namespace  := "svkoulu"
-podman     := env("PODMAN", "podman")
+registry := "ghcr.io"
+namespace := "svkoulu"
+podman := env("PODMAN", "podman")
 # Base image the derived (student/staff) builds FROM. Defaults to a locally-built
 # base; override to build against the pushed one:
 #   just build-staff base_image=ghcr.io/svkoulu/svk-base:latest
@@ -57,8 +57,11 @@ iso flavor="student" repo="local" channel="stable":
 
 # Boot the newest locally-built installer ISO in a throwaway VM to test the installer
 # end-to-end (install -> reboot -> first boot). Uses the qemux/qemu container, so it
-# needs KVM (/dev/kvm) + podman but NO host qemu. Opens the web console (localhost:8006)
-# and installs to an ephemeral disk that's discarded on exit. flavor=student|staff.
+# needs KVM (/dev/kvm) + podman but NO host qemu or swtpm. TPM=Y gives the guest an
+# emulated TPM 2.0, so the full LUKS + TPM auto-unlock path is exercised (install-time
+# %post enrollment, then auto-unlock on reboot with no passphrase prompt). Opens the
+# web console (localhost:8006) and installs to an ephemeral disk that's discarded on
+# exit. flavor=student|staff.
 [group('build')]
 run-iso flavor="student":
     #!/usr/bin/env bash
@@ -75,7 +78,7 @@ run-iso flavor="student":
         --device=/dev/kvm \
         --cap-add NET_ADMIN \
         --publish "127.0.0.1:${port}:8006" \
-        --env RAM_SIZE=6G --env CPU_CORES=4 --env DISK_SIZE=32G --env BOOT_MODE=uefi \
+        --env RAM_SIZE=6G --env CPU_CORES=4 --env DISK_SIZE=32G --env BOOT_MODE=uefi --env TPM=Y \
         --volume "$(pwd)/${iso}:/boot.iso:z" \
         docker.io/qemux/qemu
 
