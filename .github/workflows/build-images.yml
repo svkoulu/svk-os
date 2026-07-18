@@ -1,0 +1,119 @@
+# Reusable: build + sign + push all four fleet images for ONE channel from ONE ref.
+# Called by build.yml once per channel (stable and/or testing) so a single cron run
+# can publish both without duplicating the base -> derived -> server fan-out.
+#
+# Signing stays keyed + pinned to the Cosign v2 line: the v4 installer defaults to
+# Cosign v3, which moved signatures to OCI 1.1 referrers — invisible to the fleet's
+# registries.d `use-sigstore-attachments` verifier, which would block every machine
+# from pulling updates. Revisit only once that verifier supports OCI 1.1 referrers.
+name: build-images
+
+on:
+  workflow_call:
+    inputs:
+      channel:
+        description: stable | testing
+        required: true
+        type: string
+      ref:
+        description: Git ref to build (a tag for stable, main for testing).
+        required: true
+        type: string
+      major:
+        description: Release-line number (git tag) for stable; "" for testing.
+        required: false
+        type: string
+        default: ""
+      date:
+        description: Build date YYYYMMDD, computed once by the caller.
+        required: true
+        type: string
+
+env:
+  REGISTRY: ghcr.io
+  # GHCR namespace that owns the images. Must match cosign.pub's owner.
+  NAMESPACE: svkoulu
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  # ---- svk-base: the shared desktop layer. The derived images FROM it. ----
+  build-base:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: sigstore/cosign-installer@v4.1.2
+        with:
+          cosign-release: "v2.5.3"   # v2 line — see file header
+      - uses: ./.github/actions/build-image
+        with:
+          image: svk-base
+          containerfile: Containerfile.base
+          channel: ${{ inputs.channel }}
+          major: ${{ inputs.major }}
+          date: ${{ inputs.date }}
+          registry: ${{ env.REGISTRY }}
+          namespace: ${{ env.NAMESPACE }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+          cosign_key: ${{ secrets.COSIGN_PRIVATE_KEY }}
+          cosign_password: ${{ secrets.COSIGN_PASSWORD }}
+
+  # ---- student + staff: FROM the svk-base built in this same run. ----
+  build-derived:
+    needs: build-base
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false          # a broken student build shouldn't hide a staff one
+      matrix:
+        image: [svk-student, svk-staff]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: sigstore/cosign-installer@v4.1.2
+        with:
+          cosign-release: "v2.5.3"   # v2 line — see file header
+      - uses: ./.github/actions/build-image
+        with:
+          image: ${{ matrix.image }}
+          # Containerfile.svk-student -> Containerfile.student, etc.
+          containerfile: Containerfile.${{ matrix.image == 'svk-student' && 'student' || 'staff' }}
+          base_from: svk-base       # build FROM the base:IMMUTABLE produced this run
+          channel: ${{ inputs.channel }}
+          major: ${{ inputs.major }}
+          date: ${{ inputs.date }}
+          registry: ${{ env.REGISTRY }}
+          namespace: ${{ env.NAMESPACE }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+          cosign_key: ${{ secrets.COSIGN_PRIVATE_KEY }}
+          cosign_password: ${{ secrets.COSIGN_PASSWORD }}
+
+  # ---- server: independent branch (FROM uCore), builds in parallel. ----
+  build-server:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: sigstore/cosign-installer@v4.1.2
+        with:
+          cosign-release: "v2.5.3"   # v2 line — see file header
+      - uses: ./.github/actions/build-image
+        with:
+          image: svk-server
+          containerfile: Containerfile.server
+          channel: ${{ inputs.channel }}
+          major: ${{ inputs.major }}
+          date: ${{ inputs.date }}
+          registry: ${{ env.REGISTRY }}
+          namespace: ${{ env.NAMESPACE }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+          cosign_key: ${{ secrets.COSIGN_PRIVATE_KEY }}
+          cosign_password: ${{ secrets.COSIGN_PASSWORD }}

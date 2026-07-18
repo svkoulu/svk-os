@@ -1,9 +1,15 @@
-# Composite action: lint (via the build), build, push (:latest + :stable-DATE),
-# and cosign-sign one image. Factored out so all four jobs share ONE copy of the
-# signing logic — a drifted signing step is exactly the kind of silent breakage
-# this repo is trying to avoid.
+# Composite action: lint (via the build), build, push and cosign-sign one image.
+# Factored out so all four jobs share ONE copy of the signing logic — a drifted
+# signing step is exactly the kind of silent breakage this repo is trying to avoid.
+#
+# Channel/tag scheme (channel + major + date come from the caller so base and derived
+# agree on one date):
+#   stable  -> :stable, :stable-<N>, :stable-<N>-<date>   version stable-<N>-<date>
+#   testing -> :testing, :latest,    :testing-<date>      version testing-<date>
+# The version string is baked into os-release + the image.version label, so tag /
+# os-release / ISO all report one matching version.
 name: build-image
-description: Build, push (two tags) and cosign-sign a bootc image.
+description: Build, push and cosign-sign a bootc image with matching channel/version tags.
 
 inputs:
   image:
@@ -31,15 +37,46 @@ inputs:
     description: Password for the cosign key ("" if generated password-less).
     required: false
     default: ""
+  channel:
+    description: stable | testing.
+    required: true
+  major:
+    description: Release-line number (git tag N) for stable; "" for testing.
+    required: false
+    default: ""
+  date:
+    description: Build date YYYYMMDD, computed once by the caller so base + derived agree.
+    required: true
+  base_from:
+    description: >
+      Base image short name (e.g. svk-base). If set, this image is built FROM that
+      image at the immutable tag produced THIS run (same channel+major+date) — so
+      derived images pick up the base from the same run. Empty for svk-base/svk-server.
+    required: false
+    default: ""
 
 runs:
   using: composite
   steps:
-    - name: Compute tags
+    - name: Compute version + tags
       shell: bash
       run: |
-        echo "REPO=${{ inputs.registry }}/${{ inputs.namespace }}/${{ inputs.image }}" >> "$GITHUB_ENV"
-        echo "DATE_TAG=stable-$(date -u +%Y%m%d)" >> "$GITHUB_ENV"
+        CH="${{ inputs.channel }}"; MAJOR="${{ inputs.major }}"; DATE="${{ inputs.date }}"
+        if [ "${CH}" = "stable" ]; then
+          VERSION="stable-${MAJOR}-${DATE}"
+          IMMUTABLE="stable-${MAJOR}-${DATE}"
+          TAGS="stable stable-${MAJOR} ${IMMUTABLE}"   # rolling, per-line, pinned
+        else
+          VERSION="testing-${DATE}"
+          IMMUTABLE="testing-${DATE}"
+          TAGS="testing latest ${IMMUTABLE}"           # rolling, alias, pinned
+        fi
+        {
+          echo "REPO=${{ inputs.registry }}/${{ inputs.namespace }}/${{ inputs.image }}"
+          echo "VERSION=${VERSION}"
+          echo "TAGS=${TAGS}"
+          echo "IMMUTABLE=${IMMUTABLE}"        # derived images build FROM base:IMMUTABLE
+        } >> "$GITHUB_ENV"
 
     - name: Registry login
       shell: bash
@@ -52,18 +89,26 @@ runs:
       # `bootc container lint` runs as the final RUN in every Containerfile, so
       # a lint failure fails THIS build step loudly. Nothing is pushed if it does.
       run: |
-        podman build \
-          -f "${{ inputs.containerfile }}" \
-          -t "${REPO}:latest" \
-          -t "${REPO}:${DATE_TAG}" \
-          .
+        args=(--build-arg "VERSION=${VERSION}")
+        if [ -n "${{ inputs.base_from }}" ]; then
+          args+=(--build-arg "BASE_IMAGE=${{ inputs.registry }}/${{ inputs.namespace }}/${{ inputs.base_from }}:${IMMUTABLE}")
+        fi
+        for t in ${TAGS}; do args+=(-t "${REPO}:${t}"); done
+        podman build -f "${{ inputs.containerfile }}" "${args[@]}" .
 
     - name: Push
       shell: bash
       run: |
-        # Capture the manifest digest so we sign the exact bytes we pushed.
-        podman push --digestfile=/tmp/digest "${REPO}:latest"
-        podman push "${REPO}:${DATE_TAG}"
+        # Push every tag; capture the digest from the first so we sign the exact
+        # bytes (all tags resolve to the same digest -> one signature covers them).
+        first=1
+        for t in ${TAGS}; do
+          if [ "${first}" = 1 ]; then
+            podman push --digestfile=/tmp/digest "${REPO}:${t}"; first=0
+          else
+            podman push "${REPO}:${t}"
+          fi
+        done
         echo "DIGEST=$(cat /tmp/digest)" >> "$GITHUB_ENV"
 
     - name: Sign
@@ -71,8 +116,8 @@ runs:
       env:
         COSIGN_PRIVATE_KEY: ${{ inputs.cosign_key }}
         COSIGN_PASSWORD: ${{ inputs.cosign_password }}
-      # Sign by digest: both tags resolve to the same digest, so one signature
-      # covers :latest and :stable-DATE. Machines verify this against cosign.pub
+      # Sign by digest: all pushed tags resolve to the same digest, so one
+      # signature covers every tag. Machines verify this against cosign.pub
       # baked into the image (files/base/.../policy.json).
       #
       # cosign needs its own registry credentials here: it uses go-containerregistry's

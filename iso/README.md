@@ -45,10 +45,8 @@ item; it repurposes the GPG-key-extraction logic from the old
 - [ ] **Pin Titanoboa** to a real tested ref in `build-iso.sh` (currently `@main`).
 - [ ] **Validate an end-to-end build** on AC power; fix Anaconda profile / kickstart
       as needed.
-- [ ] **Per-image branding**: `svk-student`/`svk-staff` currently inherit svk-base's
-      `image-info.json`/os-release (report as `svk-base`). The ISO works regardless
-      (`build-iso.sh` passes `SVK_IMAGE_REF` explicitly), but fastfetch/tooling on
-      the installed machine will show `svk-base` until student/staff stamp their own
-      identity.
+- [x] **Per-image branding** — done: student/staff stamp their own os-release via
+      `/usr/libexec/svk/stamp-os-release`, so fastfetch/tooling report `svk-student` /
+      `svk-staff` and the channel build version (not `svk-base`).
 - [ ] **LAN-mirror `flatpak update` wiring** (D7) — the client-side remote setup.
 - [ ] Confirm the kiosk autologin (`opilas`, sysusers-locked) works post-install.

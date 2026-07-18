@@ -483,15 +483,36 @@ Two ISOs confirmed; the spec's "two precisely-scoped images" reasoning is unchan
    **Remaining Phase 5 sub-items (see iso/README TODOs):**
    - (a) validate an end-to-end build on AC; fix Anaconda profile/kickstart as needed.
    - (b) pin Titanoboa to a real tested ref (currently `@main`).
-   - (c) **per-image branding**: student/staff inherit svk-base's image-info.json/
-     os-release (report `svk-base`); ISO is unaffected (explicit `SVK_IMAGE_REF`) but
-     fastfetch/tooling shows wrong name until they stamp their own identity.
+   - (c) ✅ **DONE 2026-07-18 — channels + per-image branding/metadata.** ublue-style
+     **stable/testing channels**: stable from **git tags** (`:stable`, `:stable-N`,
+     `:stable-N-DATE`), testing from **main** (`:testing`, `:latest` alias,
+     `:testing-DATE`); the **weekly cron builds both** — stable rebuilt from the latest
+     git tag (security, no unreleased code) + testing from main. **Fleet tracks
+     `:stable`** (or `:stable-N` to pin a line). One version string
+     (`stable-N-DATE` / `testing-DATE`) flows into the tag, os-release `IMAGE_VERSION`,
+     the `image.version` label, `/usr/share/svk-os/image-info.json`, and the ISO name.
+     `channel`/`major`/`date` computed once in `build.yml`'s `setup` and passed down so
+     base+derived agree. CI restructured: `build.yml` = router → reusable
+     `build-images.yml` (base→derived→server per channel) → `build-image` composite
+     action. Shared `files/base/usr/libexec/svk/stamp-os-release` writes os-release +
+     the svk-os JSON; derived images re-run it (stop reporting `svk-base`). Justfile
+     `version=local-DATE`; build-iso.sh bakes `:stable` + names the ISO from the baked
+     image's `image.version` label. **Update paths intentionally untouched** per the
+     2026-07-18 decision (uupd drop-in, bootc-timer, D7 wiring left as-is).
    - (d) **LAN-mirror `flatpak update` client wiring** (D7) — repurpose the old
-     `svk-flatpak-preinstall.sh` mirror/GPG-key logic (in `archived/`).
+     `svk-flatpak-preinstall.sh` mirror/GPG-key logic (in `archived/`). *(An update
+     path — deferred per the 2026-07-18 "minus the update paths" scope.)*
 7. `bootc switch` / ISO-install ONE test laptop of each role; verify Firefox + the
    baked flatpaks are present **offline**, **survive a student home-reset**, and
    **update from the LAN mirror**, plus kiosk lockdown, mDNS, SSH, hostname claim,
    image auto-updates.
-8. Update `README.md` + `CLAUDE.md` to the new structure (Titanoboa ISO, mirror-for-
-   updates, no first-boot install); merge to `main`; delete `archived/` only after a
-   full green fleet cycle (or keep it).
+8. 🟡 **Docs DONE 2026-07-18; merge/cleanup pending hardware.** Rewrote `README.md`
+   + `TODO.md` (admin checklist) + `Justfile` (finpilot's → svk's own recipes:
+   `build-*`, `iso`, setup/secrets, `placeholders`) and `CLAUDE.md` (now describes
+   raw-Silverblue base, `build/` numbered scripts, dnf5, Titanoboa ISO bake,
+   mirror-for-updates, keyed cosign v2.5.3 — the old `FROM bluefin`/rpm-ostree/
+   first-boot-flatpak text is gone). Verified doc claims against the code (firefox
+   RPM exclusion, student `gnome-tour`/`malcontent-control` strip). README/TODO/
+   Justfile/CLAUDE.md are **uncommitted** in the working tree (user commits, SSH-
+   signed). **Still pending:** merge to `main` (work has been on `main` directly)
+   and delete `archived/` — only after a full green fleet cycle (or keep it).

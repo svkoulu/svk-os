@@ -1,112 +1,121 @@
-# Builds, signs and publishes all four fleet images to GHCR.
+# Builds, signs and publishes the four fleet images to GHCR, on two channels.
 #
-# Why weekly: these are CUSTOM bootc images, so they do NOT inherit upstream
-# Bluefin/uCore updates automatically. The scheduled rebuild is how new kernels
-# and security fixes reach the fleet. If this pipeline silently stops, machines
-# silently stop getting security updates — see the "Fail loudly" note in the
-# README for wiring up a failure notification.
+# Why weekly: these are CUSTOM bootc images, so they do NOT inherit upstream updates
+# automatically. The scheduled rebuild is how new kernels and security fixes reach
+# the fleet. If this pipeline silently stops, machines silently stop getting security
+# updates — see the "Fail loudly" note in the README for wiring a failure alert.
+#
+# Channels (see .github/workflows/build-images.yml for the fan-out):
+#   - git tag `N`  -> stable   (:stable, :stable-N, :stable-N-DATE)  — the fleet tracks :stable
+#   - push to main -> testing  (:testing, :latest, :testing-DATE)    — dev/test
+#   - weekly cron  -> BOTH: stable rebuilt from the latest git tag (security, no new
+#                    code) + testing rebuilt from main.
+#   - dispatch     -> both | stable | testing (input)
+# This `setup` job decides which channel(s) to build and their refs; the two calls
+# below run the reusable workflow accordingly.
 name: build
 
 on:
   schedule:
     - cron: "0 6 * * 1"      # Mondays 06:00 UTC
   push:
-    branches: [main]
+    branches: [main]         # -> testing
+    tags: ["*"]              # -> stable
   workflow_dispatch:
+    inputs:
+      channel:
+        description: Which channel(s) to build.
+        type: choice
+        default: both
+        options: [both, stable, testing]
 
-env:
-  REGISTRY: ghcr.io
-  # GitHub user/org that owns the images. Must match cosign.pub's owner and the
-  # svkoulu placeholders in the Containerfiles / files tree.
-  NAMESPACE: svkoulu
-
-# GITHUB_TOKEN needs to push packages. Keyed cosign signing needs no id-token.
 permissions:
   contents: read
   packages: write
 
 jobs:
-  # ---- svk-base: the shared desktop layer. Everything below FROMs it. ----
-  build-base:
+  setup:
     runs-on: ubuntu-latest
+    outputs:
+      do_stable: ${{ steps.p.outputs.do_stable }}
+      do_testing: ${{ steps.p.outputs.do_testing }}
+      stable_ref: ${{ steps.p.outputs.stable_ref }}
+      stable_major: ${{ steps.p.outputs.stable_major }}
+      date: ${{ steps.p.outputs.date }}
     steps:
       - uses: actions/checkout@v7
-      - uses: sigstore/cosign-installer@v4.1.2
         with:
-          # Pin to the Cosign v2 line: v4 of the installer defaults to Cosign
-          # v3, which switched image-signature storage to OCI 1.1 referrers.
-          # Our machines verify via registries.d's `use-sigstore-attachments`
-          # (the old sha256-<digest>.sig tag scheme) — signing with v3's new
-          # default would make signatures invisible to that verifier and block
-          # every machine from pulling updates. Revisit once registries.d /
-          # containers/image support for OCI 1.1 referrer signatures is confirmed.
-          cosign-release: "v2.5.3"
-      - uses: ./.github/actions/build-image
-        with:
-          image: svk-base
-          containerfile: Containerfile.base
-          registry: ${{ env.REGISTRY }}
-          namespace: ${{ env.NAMESPACE }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-          cosign_key: ${{ secrets.COSIGN_PRIVATE_KEY }}
-          cosign_password: ${{ secrets.COSIGN_PASSWORD }}
+          fetch-depth: 0        # need tags for `git describe`
+      - id: p
+        env:
+          EVENT: ${{ github.event_name }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          DISPATCH_CH: ${{ github.event.inputs.channel }}
+        run: |
+          set -euo pipefail
+          do_stable=false; do_testing=false
+          stable_ref=""; stable_major=""
+          date="$(date -u +%Y%m%d)"
 
-  # ---- student + staff: FROM the freshly pushed svk-base. -----------------
-  build-derived:
-    needs: build-base
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false          # a broken student build shouldn't hide a staff one
-      matrix:
-        image: [svk-student, svk-staff]
-    steps:
-      - uses: actions/checkout@v7
-      - uses: sigstore/cosign-installer@v4.1.2
-        with:
-          # Pin to the Cosign v2 line: v4 of the installer defaults to Cosign
-          # v3, which switched image-signature storage to OCI 1.1 referrers.
-          # Our machines verify via registries.d's `use-sigstore-attachments`
-          # (the old sha256-<digest>.sig tag scheme) — signing with v3's new
-          # default would make signatures invisible to that verifier and block
-          # every machine from pulling updates. Revisit once registries.d /
-          # containers/image support for OCI 1.1 referrer signatures is confirmed.
-          cosign-release: "v2.5.3"
-      - uses: ./.github/actions/build-image
-        with:
-          image: ${{ matrix.image }}
-          # Containerfile.svk-student -> Containerfile.student, etc.
-          containerfile: Containerfile.${{ matrix.image == 'svk-student' && 'student' || 'staff' }}
-          registry: ${{ env.REGISTRY }}
-          namespace: ${{ env.NAMESPACE }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-          cosign_key: ${{ secrets.COSIGN_PRIVATE_KEY }}
-          cosign_password: ${{ secrets.COSIGN_PASSWORD }}
+          # Latest git tag, if any (stable is always built from a tag, never main HEAD).
+          latest_tag=""
+          if git describe --tags --abbrev=0 >/dev/null 2>&1; then
+            latest_tag="$(git describe --tags --abbrev=0)"
+          fi
+          want_stable() {
+            if [ -n "$latest_tag" ]; then
+              do_stable=true; stable_major="$latest_tag"; stable_ref="$latest_tag"
+            else
+              echo "No git tag yet -> skipping stable channel."
+            fi
+          }
 
-  # ---- server: independent branch (FROM uCore), builds in parallel. ---------
-  build-server:
-    needs: []
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: sigstore/cosign-installer@v4.1.2
-        with:
-          # Pin to the Cosign v2 line: v4 of the installer defaults to Cosign
-          # v3, which switched image-signature storage to OCI 1.1 referrers.
-          # Our machines verify via registries.d's `use-sigstore-attachments`
-          # (the old sha256-<digest>.sig tag scheme) — signing with v3's new
-          # default would make signatures invisible to that verifier and block
-          # every machine from pulling updates. Revisit once registries.d /
-          # containers/image support for OCI 1.1 referrer signatures is confirmed.
-          cosign-release: "v2.5.3"
-      - uses: ./.github/actions/build-image
-        with:
-          image: svk-server
-          containerfile: Containerfile.server
-          registry: ${{ env.REGISTRY }}
-          namespace: ${{ env.NAMESPACE }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-          cosign_key: ${{ secrets.COSIGN_PRIVATE_KEY }}
-          cosign_password: ${{ secrets.COSIGN_PASSWORD }}
+          case "$EVENT" in
+            push)
+              if [ "$REF_TYPE" = "tag" ]; then
+                do_stable=true; stable_major="$REF_NAME"; stable_ref="$REF_NAME"
+              else
+                do_testing=true
+              fi
+              ;;
+            schedule)
+              do_testing=true; want_stable
+              ;;
+            workflow_dispatch)
+              case "$DISPATCH_CH" in
+                both)    do_testing=true; want_stable ;;
+                testing) do_testing=true ;;
+                stable)  want_stable ;;
+              esac
+              ;;
+          esac
+
+          {
+            echo "do_stable=$do_stable"
+            echo "do_testing=$do_testing"
+            echo "stable_ref=$stable_ref"
+            echo "stable_major=$stable_major"
+            echo "date=$date"
+          } >> "$GITHUB_OUTPUT"
+
+  stable:
+    needs: setup
+    if: needs.setup.outputs.do_stable == 'true'
+    uses: ./.github/workflows/build-images.yml
+    with:
+      channel: stable
+      ref: ${{ needs.setup.outputs.stable_ref }}
+      major: ${{ needs.setup.outputs.stable_major }}
+      date: ${{ needs.setup.outputs.date }}
+    secrets: inherit
+
+  testing:
+    needs: setup
+    if: needs.setup.outputs.do_testing == 'true'
+    uses: ./.github/workflows/build-images.yml
+    with:
+      channel: testing
+      ref: main
+      date: ${{ needs.setup.outputs.date }}
+    secrets: inherit

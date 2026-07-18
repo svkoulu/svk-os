@@ -7,9 +7,8 @@
 # projectbluefin/iso's iso_files/configure_iso_anaconda.sh.
 #
 # svk changes vs. upstream:
-#   - image ref comes from $SVK_IMAGE_REF (passed by iso/build-iso.sh), NOT from
-#     image-info.json (svk-student/-staff currently inherit svk-base's image-info,
-#     see the branding TODO in the plan) — so the installer targets the right image.
+#   - image ref comes from $SVK_IMAGE_REF (passed by iso/build-iso.sh) — so the
+#     installer targets the right image regardless of what the image self-reports.
 #   - NO Secure Boot key enrollment (svk ships no custom kmods; N4=skip).
 #   - NO Bluefin branding clone.
 #   - bootc switch enforces svk's cosign signature policy on the installed origin.
@@ -19,7 +18,8 @@
 # on-hardware build to confirm.
 set -eoux pipefail
 
-# The bootc image this ISO installs, e.g. ghcr.io/svkoulu/svk-student:stable.
+# The bootc image this ISO installs, e.g. ghcr.io/svkoulu/svk-student:stable — the
+# channel the fleet tracks. The installed machine's bootc origin is set to this ref.
 : "${SVK_IMAGE_REF:?SVK_IMAGE_REF must be set (ghcr.io/svkoulu/svk-<flavor>:<tag>)}"
 IMAGE_REF="${SVK_IMAGE_REF%%@*}"          # strip any digest
 IMAGE_TAG="${IMAGE_REF##*:}"; [[ "$IMAGE_TAG" == "$IMAGE_REF" ]] && IMAGE_TAG="stable"

@@ -15,13 +15,19 @@ COPY custom /custom
 # --- base: raw Fedora Silverblue, pinned by digest (Renovate keeps it current). ---
 FROM quay.io/fedora-ostree-desktops/silverblue:44@sha256:b21b78d67bdba02aa551bebbb2f67278cb2f72a3c87f43148a25f3dd325bc663
 
-# Image identity — makes bootc / fastfetch / ublue tooling report svk, not Fedora.
+# Image identity — makes bootc / fastfetch report svk, not Fedora.
 ARG IMAGE_NAME="svk-base"
 ARG IMAGE_VENDOR="svkoulu"
-ARG UBLUE_IMAGE_TAG="stable"
-ARG BASE_IMAGE_NAME="silverblue"
 ARG FEDORA_MAJOR_VERSION="44"
+# Build version, e.g. 1-20260718 (git-tag major + date). CI passes it; blank locally.
 ARG VERSION=""
+
+# OCI metadata — svk build version + Fedora provenance. The base itself is pinned by
+# digest in the FROM line above; these make the versions greppable via `podman inspect`
+# (the ISO build reads image.version to name the ISO after the exact image it bakes).
+LABEL org.opencontainers.image.version="${VERSION}"
+LABEL org.opencontainers.image.base.name="quay.io/fedora-ostree-desktops/silverblue:${FEDORA_MAJOR_VERSION}"
+LABEL fedora.version="${FEDORA_MAJOR_VERSION}"
 
 # svk static config tree -> "/" (ships in the image): ghcr mirror, cosign policy,
 # admin SSH, dconf defaults, firefox/uBO policy, mDNS, hostname-claim, power, certs.
@@ -30,7 +36,7 @@ COPY files/base/ /
 # only accept svk images signed with this repo's key.
 COPY cosign.pub /etc/pki/containers/svk-cosign.pub
 
-# Branding first (writes /usr/lib/os-release + image-info.json).
+# Branding first (stamps svk identity + $VERSION into /usr/lib/os-release).
 RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     --mount=type=tmpfs,dst=/boot \
     --mount=type=tmpfs,dst=/tmp \

@@ -10,7 +10,8 @@
 #   2. Clones Titanoboa (pinned) into iso/.build/<flavor>/
 #   3. Runs Titanoboa's `just build <image> 1 flatpaks.list`, passing svk's
 #      hook-anaconda.sh as HOOK_post_rootfs and the image ref as SVK_IMAGE_REF.
-#   4. Copies the resulting ISO to iso/svk-<flavor>-<date>.iso
+#   4. Copies the resulting ISO to iso/svk-<flavor>-<version>.iso (version from the
+#      baked image's image.version label, e.g. 1-20260718)
 #
 # Titanoboa needs root podman (loop devices for ISO creation) — run on a real host
 # with sudo, not inside a rootless dev container. NEEDS AC POWER (ISO builds are
@@ -30,8 +31,10 @@ flavor="${1:?usage: build-iso.sh <student|staff> [ghcr|local]}"
 repo="${2:-ghcr}"
 case "$flavor" in student|staff) ;; *) echo "flavor must be student|staff" >&2; exit 1 ;; esac
 
+# The fleet installs the STABLE channel, so ghcr ISOs bake :stable (needs at least
+# one cut git tag). Override IMAGE_REF in the env to bake a different tag/channel.
 case "$repo" in
-    ghcr)  IMAGE_REF="${REGISTRY}/${NAMESPACE}/svk-${flavor}:stable" ;;
+    ghcr)  IMAGE_REF="${IMAGE_REF:-${REGISTRY}/${NAMESPACE}/svk-${flavor}:stable}" ;;
     local) IMAGE_REF="localhost/svk-${flavor}:latest" ;;
     *) echo "repo must be ghcr|local" >&2; exit 1 ;;
 esac
@@ -75,7 +78,12 @@ sudo env \
     just PODMAN="podman" build "$IMAGE_REF" 1 flatpaks.list
 
 # --- 5. Collect the ISO --------------------------------------------------------
-out="${REPO_ROOT}/iso/svk-${flavor}-$(date +%Y%m%d).iso"
+# Name the ISO after the exact image version it baked (the image.version label /
+# os-release IMAGE_VERSION, e.g. 1-20260718) so the ISO, the image tag and os-release
+# all report one matching version. Local dev images may carry none -> fall back to date.
+img_ver="$(sudo podman inspect --format '{{index .Config.Labels "org.opencontainers.image.version"}}' "$IMAGE_REF" 2>/dev/null || true)"
+[ -n "$img_ver" ] || img_ver="$(date +%Y%m%d)"
+out="${REPO_ROOT}/iso/svk-${flavor}-${img_ver}.iso"
 if [ -f "${BUILD_DIR}/output.iso" ]; then
     cp "${BUILD_DIR}/output.iso" "$out"
     echo "SUCCESS: ${out}"

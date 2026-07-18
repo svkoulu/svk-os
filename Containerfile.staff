@@ -10,6 +10,10 @@
 ARG BASE_IMAGE=ghcr.io/svkoulu/svk-base:latest
 FROM ${BASE_IMAGE}
 
+# Build version (git-tag major + date), passed by CI; stamped into os-release below.
+ARG VERSION=""
+LABEL org.opencontainers.image.version="${VERSION}"
+
 # Staff config tree:
 #   - etc/svk/tailscale.conf              -> tag:svk-staff, ENROLL=yes
 #   - etc/systemd/resolved.conf.d/        -> staff DNS (local + NextDNS fallback)
@@ -18,5 +22,10 @@ COPY files/staff/ /
 
 COPY build.staff.sh /tmp/build.staff.sh
 RUN bash /tmp/build.staff.sh && rm -f /tmp/build.staff.sh
+
+# Re-stamp os-release with svk-staff's own identity + version (the shared stamper
+# ships in svk-base at /usr/libexec/svk/) so this image reports svk-staff, not svk-base.
+RUN VERSION="${VERSION}" IMAGE_NAME="svk-staff" IMAGE_PRETTY_NAME="SVK Staff" \
+    /usr/libexec/svk/stamp-os-release
 
 RUN bootc container lint --fatal-warnings

@@ -1,0 +1,77 @@
+#!/usr/bin/bash
+# stamp-os-release — write svk identity + build version into /usr/lib/os-release
+# AND a machine-readable /usr/share/svk-os/image-info.json.
+#
+# Env-driven so svk-base AND each derived image (svk-student / svk-staff) can stamp
+# their OWN identity: base runs it at branding time, the derived Containerfiles run
+# it again (this file ships in the base image at /usr/libexec/svk/) so they stop
+# reporting `svk-base`. Fedora's own VERSION_ID / OSTREE_VERSION (from the Silverblue
+# base) are left untouched, so the Fedora version stays visible alongside ours.
+#
+# The JSON mirrors ublue's image-info.json idea but lives under svk-os/ (no ublue
+# path/vendor). Nothing in the update path reads it — it's metadata for our own
+# tooling/introspection (channel, version, release line, base) via `jq`.
+#
+#   IMAGE_NAME        (required)  e.g. svk-base / svk-student / svk-staff
+#   VERSION           (optional)  build version: stable-<N>-<date> | testing-<date>
+#                                 | local-<date> (blank -> os-release keeps base value)
+#   IMAGE_VENDOR      (default svkoulu)
+#   IMAGE_PRETTY_NAME (default "SVK OS")
+set -euo pipefail
+
+: "${IMAGE_NAME:?stamp-os-release: IMAGE_NAME is required}"
+VERSION="${VERSION:-}"
+IMAGE_VENDOR="${IMAGE_VENDOR:-svkoulu}"
+IMAGE_PRETTY_NAME="${IMAGE_PRETTY_NAME:-SVK OS}"
+REPO_URL="https://github.com/svkoulu/svk-os"
+
+OS_RELEASE="/usr/lib/os-release"
+
+# --- os-release: upsert (replace the key if the base set it, append otherwise) ----
+set_kv() {
+	local key="$1" val="$2"
+	if grep -q "^${key}=" "${OS_RELEASE}"; then
+		sed -i "s|^${key}=.*|${key}=\"${val}\"|" "${OS_RELEASE}"
+	else
+		printf '%s="%s"\n' "${key}" "${val}" >>"${OS_RELEASE}"
+	fi
+}
+
+set_kv PRETTY_NAME       "${IMAGE_PRETTY_NAME}"
+set_kv NAME              "${IMAGE_NAME}"
+set_kv IMAGE_ID          "${IMAGE_NAME}"
+set_kv IMAGE_VENDOR      "${IMAGE_VENDOR}"
+[ -n "${VERSION}" ] && set_kv IMAGE_VERSION "${VERSION}"
+set_kv HOME_URL          "${REPO_URL}"
+set_kv DOCUMENTATION_URL "${REPO_URL}/blob/main/README.md"
+set_kv SUPPORT_URL       "${REPO_URL}/issues"
+set_kv BUG_REPORT_URL    "${REPO_URL}/issues/new"
+
+# --- svk-os/image-info.json: derive channel + release line from VERSION -----------
+# stable-<N>-<date> -> channel=stable, release-tag=<N>;  testing-<date> -> testing.
+channel=""; release_tag=""
+case "${VERSION}" in
+	stable-*)  channel="stable"; rest="${VERSION#stable-}"; release_tag="${rest%-*}" ;;
+	testing-*) channel="testing" ;;
+	local-*)   channel="local" ;;
+esac
+
+# Fedora version + base variant come from Silverblue's own os-release (untouched).
+fedora_version="$(. "${OS_RELEASE}" 2>/dev/null; echo "${VERSION_ID:-}")"
+base_image="$(. "${OS_RELEASE}" 2>/dev/null; echo "${VARIANT_ID:-silverblue}")"
+
+mkdir -p /usr/share/svk-os
+cat >/usr/share/svk-os/image-info.json <<EOF
+{
+  "image-name": "${IMAGE_NAME}",
+  "image-vendor": "${IMAGE_VENDOR}",
+  "image-ref": "ostree-image-signed:docker://ghcr.io/${IMAGE_VENDOR}/${IMAGE_NAME}",
+  "channel": "${channel}",
+  "version": "${VERSION}",
+  "release-tag": "${release_tag}",
+  "base-image": "${base_image}",
+  "fedora-version": "${fedora_version}"
+}
+EOF
+
+echo "stamped ${OS_RELEASE} + svk-os/image-info.json: NAME=${IMAGE_NAME} VERSION=${VERSION:-<none>} channel=${channel:-<none>}"

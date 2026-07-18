@@ -11,6 +11,11 @@
 # It must reach the *real* ghcr.io to populate the cache.
 FROM ghcr.io/ublue-os/ucore:stable
 
+# Consumed by CI's shared build action (passed to every image). The server is uCore,
+# not svk-base, so it keeps uCore's own os-release; this just accepts the build-arg.
+ARG VERSION=""
+LABEL org.opencontainers.image.version="${VERSION}"
+
 # Server config tree:
 #   - /etc/containers/systemd/registry.container -> pull-through cache quadlet
 #   - /usr/bin/hostname-dispenser.sh       -> pool dispenser

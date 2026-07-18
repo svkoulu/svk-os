@@ -15,6 +15,10 @@ COPY build /build
 
 FROM ${BASE_IMAGE}
 
+# Build version (git-tag major + date), passed by CI; stamped into os-release below.
+ARG VERSION=""
+LABEL org.opencontainers.image.version="${VERSION}"
+
 # Kiosk config tree:
 #   - usr/lib/sysusers.d/svk-opilas.conf -> the autologin opilas account
 #   - etc/gdm/custom.conf                -> autologin to opilas
@@ -44,5 +48,10 @@ RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     --mount=type=tmpfs,dst=/tmp \
     --mount=type=tmpfs,dst=/boot \
     /ctx/build/clean-stage.sh
+
+# Re-stamp os-release with svk-student's own identity + version (the shared stamper
+# ships in svk-base at /usr/libexec/svk/) so this image reports svk-student, not svk-base.
+RUN VERSION="${VERSION}" IMAGE_NAME="svk-student" IMAGE_PRETTY_NAME="SVK Student" \
+    /usr/libexec/svk/stamp-os-release
 
 RUN bootc container lint --fatal-warnings
