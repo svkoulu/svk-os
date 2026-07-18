@@ -69,6 +69,17 @@ jobs:
           echo "${{ secrets.GITHUB_TOKEN }}" | sudo podman login "${REGISTRY}" \
             -u "${{ github.actor }}" --password-stdin
 
+      # The runner image ships no `just`, and build-iso.sh drives Titanoboa's own
+      # Justfile via `sudo env ... just ...` — sudo's secure_path ignores the
+      # PATH this action adds, so the binary also needs symlinking into a
+      # directory sudo does trust (/usr/local/bin).
+      - name: Install just
+        if: steps.gate.outputs.run == 'true'
+        uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4
+      - name: Make just visible to root (sudo resets PATH)
+        if: steps.gate.outputs.run == 'true'
+        run: sudo ln -sf "$(command -v just)" /usr/local/bin/just
+
       - name: Build ISO with Titanoboa
         if: steps.gate.outputs.run == 'true'
         run: bash iso/build-iso.sh "${{ matrix.flavor }}" ghcr "${{ inputs.channel }}"
