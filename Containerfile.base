@@ -31,6 +31,16 @@ LABEL fedora.version="${FEDORA_MAJOR_VERSION}"
 
 # svk static config tree -> "/" (ships in the image): ghcr mirror, cosign policy,
 # admin SSH, dconf defaults, firefox/uBO policy, mDNS, hostname-claim, power, certs.
+#
+# files/base/etc/containers/policy.json: default is `insecureAcceptAnything` so
+# upstream Bluefin/uCore/flathub etc. keep working (they use their own
+# verification / aren't cosign-signed the same way); our OWN namespace
+# (ghcr.io/svkoulu) is pinned to require a cosign signature made with
+# /etc/pki/containers/svk-cosign.pub. Tighten `default` to `reject` later for a
+# fully closed fleet. NOTE: policy.json's parser strictly validates top-level
+# keys, so it can't hold a "//"-style comment key itself (that broke `bootc
+# switch --enforce-container-sigpolicy` with "unknown key: //" during install) —
+# keep any explanatory notes here instead of in the file.
 COPY files/base/ /
 # Our image-signing public key, enforced by /etc/containers/policy.json so machines
 # only accept svk images signed with this repo's key.

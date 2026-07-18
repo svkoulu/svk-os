@@ -60,7 +60,11 @@ mkdir -p /var/lib/rpm-state # needed for Anaconda's WebUI front-end
 
 # Anaconda profile for svk (btrfs, hide the account spokes — student autologs into
 # the baked opilas account; staff users are created by gnome-initial-setup at first
-# boot). Matches our os-release VARIANT_ID=main.
+# boot). Matches our os-release VARIANT_ID=silverblue (svk-base is raw Silverblue,
+# not FROM bluefin, so it never gets bluefin's VARIANT_ID=main — confirmed by
+# inspecting a built image; the old hook-anaconda.sh's "variant_id = main" was
+# never validated and was simply wrong, so Anaconda fell back to a different,
+# non-svk profile).
 mkdir -p /etc/anaconda/profile.d
 tee /etc/anaconda/profile.d/svk.conf <<'EOF'
 [Profile]
@@ -68,7 +72,7 @@ profile_id = svk
 
 [Profile Detection]
 os_id = fedora
-variant_id = main
+variant_id = silverblue
 
 [Network]
 default_on_boot = FIRST_WIRED_WITH_LINK

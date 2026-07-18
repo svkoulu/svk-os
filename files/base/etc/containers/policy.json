@@ -1,13 +1,4 @@
 {
-  "//": [
-    "Container signature policy for the fleet.",
-    "Default is `insecureAcceptAnything` so upstream Bluefin/uCore/flathub etc.",
-    "keep working (they use their own verification / are not cosign-signed the",
-    "same way). Our OWN namespace is pinned to require a cosign signature made",
-    "with /etc/pki/containers/svk-cosign.pub. Tighten `default` to",
-    "`reject` later if you want a fully closed fleet.",
-    "Edit svkoulu to match cosign.pub's owner."
-  ],
   "default": [
     { "type": "insecureAcceptAnything" }
   ],
