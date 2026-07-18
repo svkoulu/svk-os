@@ -104,6 +104,7 @@ secret.
 
 ```bash
 just iso student local          # or: staff ; or repo=ghcr to use the pushed image
+just run-iso student            # boot that ISO in a throwaway VM to test the installer
 # CI: Actions → iso → Run workflow → pick a flavor
 ```
 

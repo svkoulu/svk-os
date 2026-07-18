@@ -54,6 +54,30 @@ build-all: build-desktops build-server
 iso flavor="student" repo="local":
     iso/build-iso.sh {{ flavor }} {{ repo }}
 
+# Boot the newest locally-built installer ISO in a throwaway VM to test the installer
+# end-to-end (install -> reboot -> first boot). Uses the qemux/qemu container, so it
+# needs KVM (/dev/kvm) + podman but NO host qemu. Opens the web console (localhost:8006)
+# and installs to an ephemeral disk that's discarded on exit. flavor=student|staff.
+[group('build')]
+run-iso flavor="student":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    iso="$(ls -t iso/svk-{{ flavor }}-*.iso 2>/dev/null | head -1 || true)"
+    [ -n "$iso" ] || { echo "No iso/svk-{{ flavor }}-*.iso found — run 'just iso {{ flavor }} local' first."; exit 1; }
+    [ -e /dev/kvm ] || { echo "No /dev/kvm — this VM runner needs KVM."; exit 1; }
+    # Pick a free host port for the web console.
+    port=8006
+    while ss -tuln 2>/dev/null | grep -q ":${port}\b"; do port=$((port + 1)); done
+    echo "Booting ${iso} — web console: http://localhost:${port}"
+    ( sleep 25 && command -v xdg-open >/dev/null && xdg-open "http://localhost:${port}" ) &
+    {{ podman }} run --rm -it \
+        --device=/dev/kvm \
+        --cap-add NET_ADMIN \
+        --publish "127.0.0.1:${port}:8006" \
+        --env RAM_SIZE=6G --env CPU_CORES=4 --env DISK_SIZE=32G --env BOOT_MODE=uefi \
+        --volume "$(pwd)/${iso}:/boot.iso:z" \
+        docker.io/qemux/qemu
+
 # ── Setup / secrets ─────────────────────────────────────────────────────────
 
 # Generate the cosign signing keypair. Commit cosign.pub; NEVER commit cosign.key
