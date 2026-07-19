@@ -12,7 +12,11 @@ FROM ${BASE_IMAGE}
 
 # Build version (git-tag major + date), passed by CI; stamped into os-release below.
 ARG VERSION=""
+# Full git commit SHA this image was built from — see Containerfile.base for why
+# it's tracked separately from VERSION.
+ARG GIT_SHA=""
 LABEL org.opencontainers.image.version="${VERSION}"
+LABEL org.opencontainers.image.revision="${GIT_SHA}"
 
 # Staff config tree:
 #   - etc/svk/tailscale.conf              -> tag:svk-staff, ENROLL=yes
@@ -27,7 +31,7 @@ RUN bash /tmp/build.staff.sh && rm -f /tmp/build.staff.sh
 # ships in svk-base at /usr/libexec/svk/) so this image reports svk-staff, not svk-base.
 # PRETTY_NAME becomes "SVK OS (staff-<version>)" — the only field the Anaconda
 # WebUI installer (and GNOME's About page) actually displays.
-RUN VERSION="${VERSION}" IMAGE_NAME="svk-staff" IMAGE_FLAVOR="staff" \
+RUN VERSION="${VERSION}" GIT_SHA="${GIT_SHA}" IMAGE_NAME="svk-staff" IMAGE_FLAVOR="staff" \
     /usr/libexec/svk/stamp-os-release
 
 RUN bootc container lint --fatal-warnings

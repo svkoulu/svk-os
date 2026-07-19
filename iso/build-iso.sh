@@ -82,6 +82,15 @@ fi
 # installed, not just the rolling channel alias in IMAGE_REF. Same label build-iso
 # step 5 uses to name the ISO file — read once here, reused there.
 IMG_VERSION="$(sudo "$PODMAN" inspect --format '{{index .Config.Labels "org.opencontainers.image.version"}}' "$BASE_IMAGE" 2>/dev/null || true)"
+# BASE_IMAGE's own commit (stamped by Containerfile.{staff,student}'s GIT_SHA
+# build-arg) — the source commit the PACKAGED IMAGE was built from. Reported
+# alongside ISO_GIT_SHA below since the two can legitimately differ (an ISO can be
+# rebuilt with newer iso/ scripts against an older, already-published image).
+IMG_GIT_SHA="$(sudo "$PODMAN" inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$BASE_IMAGE" 2>/dev/null || true)"
+# Commit of THIS svk repo checkout, i.e. the iso/ scripts assembling this ISO —
+# distinct from IMG_GIT_SHA above. Stamped into the live environment as
+# svk-os/iso-build-info.json (see iso/installer/build.sh).
+ISO_GIT_SHA="$(git -C "$REPO_ROOT" rev-parse HEAD 2>/dev/null || true)"
 
 # Temporary LUKS passphrase used only to create the encrypted disk during install.
 # Fresh per build so it isn't a committed/reused secret; the target's first-boot
@@ -96,6 +105,7 @@ sudo "$PODMAN" build \
     --build-arg IMAGE_REF="$IMAGE_REF" \
     --build-arg VERSION="$IMG_VERSION" \
     --build-arg LUKS_BOOTSTRAP_PASSPHRASE="$LUKS_BOOTSTRAP_PASSPHRASE" \
+    --build-arg ISO_GIT_SHA="$ISO_GIT_SHA" \
     -t "$INSTALLER_IMAGE" \
     -f "${REPO_ROOT}/iso/installer/Containerfile" \
     "$REPO_ROOT"
@@ -155,6 +165,9 @@ mv "$iso_path" "$out"
 pass_file="${out%.iso}.luks-bootstrap.txt"
 ( umask 077; printf '%s\n' "$LUKS_BOOTSTRAP_PASSPHRASE" >"$pass_file" )
 echo "SUCCESS: ${out}"
+echo
+echo "  Packaged image commit (svk-${flavor}): ${IMG_GIT_SHA:-<none>}"
+echo "  iso/ scripts commit (this build):      ${ISO_GIT_SHA:-<none>}"
 echo
 echo "  LUKS bootstrap passphrase for this ISO (FALLBACK only — the TPM is pre-enrolled"
 echo "  so machines normally auto-unlock; needed if one has no TPM and prompts):"

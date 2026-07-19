@@ -17,6 +17,12 @@
 #                             (blank for svk-base, which has no flavor)
 #   VERSION       (optional)  build version: stable-<N>-<date> | testing-<date>
 #                             | local-<date> (blank -> no version in PRETTY_NAME)
+#   GIT_SHA       (optional)  full git commit SHA of the svk repo this image was
+#                             built from. Stamped as os-release BUILD_ID (systemd's
+#                             own field for "uniquely identifies a particular build")
+#                             and svk-os/image-info.json's git-commit — the way to
+#                             go from a running/installed image back to its source
+#                             commit, independent of VERSION's channel/date scheme.
 #   IMAGE_VENDOR  (default svkoulu)
 #
 # NAME stays the constant OS family name "svk-os" across every image (base,
@@ -40,6 +46,7 @@ set -euo pipefail
 : "${IMAGE_NAME:?stamp-os-release: IMAGE_NAME is required}"
 IMAGE_FLAVOR="${IMAGE_FLAVOR:-}"
 VERSION="${VERSION:-}"
+GIT_SHA="${GIT_SHA:-}"
 IMAGE_VENDOR="${IMAGE_VENDOR:-svkoulu}"
 REPO_URL="https://github.com/svkoulu/svk-os"
 
@@ -70,6 +77,10 @@ set_kv NAME              "svk-os"
 set_kv IMAGE_ID          "${IMAGE_NAME}"
 set_kv IMAGE_VENDOR      "${IMAGE_VENDOR}"
 [ -n "${VERSION}" ] && set_kv IMAGE_VERSION "${VERSION}"
+# BUILD_ID is systemd's own os-release(5) field for "a string that uniquely
+# identifies a particular build" — the standard slot for a commit SHA, not a
+# svk-invented one.
+[ -n "${GIT_SHA}" ] && set_kv BUILD_ID "${GIT_SHA}"
 set_kv HOME_URL          "${REPO_URL}"
 set_kv DOCUMENTATION_URL "${REPO_URL}/blob/main/README.md"
 set_kv SUPPORT_URL       "${REPO_URL}/issues"
@@ -96,10 +107,11 @@ cat >/usr/share/svk-os/image-info.json <<EOF
   "image-ref": "ostree-image-signed:docker://ghcr.io/${IMAGE_VENDOR}/${IMAGE_NAME}",
   "channel": "${channel}",
   "version": "${VERSION}",
+  "git-commit": "${GIT_SHA}",
   "release-tag": "${release_tag}",
   "base-image": "${base_image}",
   "fedora-version": "${fedora_version}"
 }
 EOF
 
-echo "stamped ${OS_RELEASE} + svk-os/image-info.json: IMAGE_ID=${IMAGE_NAME} VERSION=${VERSION:-<none>} channel=${channel:-<none>}"
+echo "stamped ${OS_RELEASE} + svk-os/image-info.json: IMAGE_ID=${IMAGE_NAME} VERSION=${VERSION:-<none>} channel=${channel:-<none>} GIT_SHA=${GIT_SHA:-<none>}"

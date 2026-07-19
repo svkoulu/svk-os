@@ -21,11 +21,22 @@ ARG IMAGE_VENDOR="svkoulu"
 ARG FEDORA_MAJOR_VERSION="44"
 # Build version, e.g. 1-20260718 (git-tag major + date). CI passes it; blank locally.
 ARG VERSION=""
+# Full git commit SHA of the svk repo this image was built from. CI passes
+# github.sha; the Justfile passes `git rev-parse HEAD`; blank for a manual
+# `podman build` with no --build-arg. Distinct from VERSION (channel/date) —
+# this is what lets you go from a running/installed image back to the exact
+# source commit, independent of tagging/release scheme.
+ARG GIT_SHA=""
 
 # OCI metadata — svk build version + Fedora provenance. The base itself is pinned by
 # digest in the FROM line above; these make the versions greppable via `podman inspect`
 # (the ISO build reads image.version to name the ISO after the exact image it bakes).
 LABEL org.opencontainers.image.version="${VERSION}"
+# org.opencontainers.image.revision is the OCI Image Spec's own pre-defined key for
+# "source control revision of the packaged software" — using it (not a svk-invented
+# label) means any OCI-aware tool (podman/skopeo inspect, GitHub, etc.) already knows
+# what it means.
+LABEL org.opencontainers.image.revision="${GIT_SHA}"
 LABEL org.opencontainers.image.base.name="quay.io/fedora-ostree-desktops/silverblue:${FEDORA_MAJOR_VERSION}"
 LABEL fedora.version="${FEDORA_MAJOR_VERSION}"
 

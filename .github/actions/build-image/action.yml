@@ -89,7 +89,7 @@ runs:
       # `bootc container lint` runs as the final RUN in every Containerfile, so
       # a lint failure fails THIS build step loudly. Nothing is pushed if it does.
       run: |
-        args=(--build-arg "VERSION=${VERSION}")
+        args=(--build-arg "VERSION=${VERSION}" --build-arg "GIT_SHA=${{ github.sha }}")
         if [ -n "${{ inputs.base_from }}" ]; then
           args+=(--build-arg "BASE_IMAGE=${{ inputs.registry }}/${{ inputs.namespace }}/${{ inputs.base_from }}:${IMMUTABLE}")
         fi

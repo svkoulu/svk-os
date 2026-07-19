@@ -22,11 +22,18 @@ ARG VERSION
 # Temporary LUKS passphrase to create the encrypted disk at install; generated
 # fresh per ISO build by iso/build-iso.sh and wiped on the target at first boot.
 ARG LUKS_BOOTSTRAP_PASSPHRASE
+# Full git commit SHA of the svk repo checkout that ran iso/build-iso.sh — NOT
+# necessarily the same commit that built BASE_IMAGE (you can rebuild an ISO with
+# newer iso/ scripts against an already-published older image). Stamped into the
+# live environment as iso-build-info.json so a captured log bundle from a real
+# install can be correlated with the exact iso/ script version that produced it.
+ARG ISO_GIT_SHA=""
 
 COPY flatpaks/ /tmp/flatpaks/
 COPY iso/installer/build.sh /tmp/build.sh
 RUN --mount=type=cache,dst=/var/cache/libdnf5 \
     FLAVOR="${FLAVOR}" IMAGE_REF="${IMAGE_REF}" VERSION="${VERSION}" \
     LUKS_BOOTSTRAP_PASSPHRASE="${LUKS_BOOTSTRAP_PASSPHRASE}" \
+    ISO_GIT_SHA="${ISO_GIT_SHA}" \
     bash /tmp/build.sh \
     && rm -rf /tmp/build.sh /tmp/flatpaks

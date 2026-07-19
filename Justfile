@@ -13,6 +13,10 @@ local_base := "localhost/svk-base:latest"
 # Stamped into os-release, svk-os/image-info.json + the image.version label so a local
 # dev build is clearly not a CI stable/testing image. CI computes stable-/testing-<date>.
 version := "local-" + `date +%Y%m%d`
+# Full commit SHA of the checkout doing the build — stamped as org.opencontainers.
+# image.revision + os-release BUILD_ID, independent of the version/channel scheme
+# above, so a running image can be traced back to its exact source commit.
+git_sha := `git rev-parse HEAD`
 
 [private]
 default:
@@ -23,22 +27,22 @@ default:
 # Build svk-base (every desktop image builds FROM it).
 [group('build')]
 build-base:
-    {{ podman }} build -f Containerfile.base --build-arg VERSION={{ version }} -t svk-base .
+    {{ podman }} build -f Containerfile.base --build-arg VERSION={{ version }} --build-arg GIT_SHA={{ git_sha }} -t svk-base .
 
 # Build svk-staff (needs svk-base built first, or pass base_image=<ghcr ref>).
 [group('build')]
 build-staff base_image=local_base:
-    {{ podman }} build -f Containerfile.staff --build-arg BASE_IMAGE={{ base_image }} --build-arg VERSION={{ version }} -t svk-staff .
+    {{ podman }} build -f Containerfile.staff --build-arg BASE_IMAGE={{ base_image }} --build-arg VERSION={{ version }} --build-arg GIT_SHA={{ git_sha }} -t svk-staff .
 
 # Build svk-student (needs svk-base built first, or pass base_image=<ghcr ref>).
 [group('build')]
 build-student base_image=local_base:
-    {{ podman }} build -f Containerfile.student --build-arg BASE_IMAGE={{ base_image }} --build-arg VERSION={{ version }} -t svk-student .
+    {{ podman }} build -f Containerfile.student --build-arg BASE_IMAGE={{ base_image }} --build-arg VERSION={{ version }} --build-arg GIT_SHA={{ git_sha }} -t svk-student .
 
 # Build the uCore server image (independent of svk-base).
 [group('build')]
 build-server:
-    {{ podman }} build -f Containerfile.server --build-arg VERSION={{ version }} -t svk-server .
+    {{ podman }} build -f Containerfile.server --build-arg VERSION={{ version }} --build-arg GIT_SHA={{ git_sha }} -t svk-server .
 
 # Build base + both desktops, in dependency order.
 [group('build')]
@@ -78,7 +82,7 @@ run-iso flavor="student":
         --device=/dev/kvm \
         --cap-add NET_ADMIN \
         --publish "127.0.0.1:${port}:8006" \
-        --env RAM_SIZE=6G --env CPU_CORES=4 --env DISK_SIZE=32G --env BOOT_MODE=uefi --env TPM=Y \
+        --env RAM_SIZE=8G --env CPU_CORES=8 --env DISK_SIZE=40G --env BOOT_MODE=uefi --env TPM=Y \
         --volume "$(pwd)/${iso}:/boot.iso:z" \
         docker.io/qemux/qemu
 

@@ -350,6 +350,24 @@ grub2:
       initrd: "/images/pxeboot/initrd.img"
 EOF
 
+### ISO build provenance ########################################################
+# Records which iso/ commit assembled THIS ISO/installer environment — separate
+# from the packaged image's own git-commit (in its baked-in svk-os/image-info.json),
+# since an ISO can be rebuilt with newer iso/ scripts against an older, already-
+# published image. Lives only in the live/installer environment, never rsynced to
+# the target — it's metadata about the ISO build, not the installed OS. Exactly the
+# kind of thing worth having on hand if a captured log bundle needs correlating with
+# the iso/ script version that produced it.
+mkdir -p /usr/share/svk-os
+cat >/usr/share/svk-os/iso-build-info.json <<EOF
+{
+  "flavor": "${FLAVOR}",
+  "image-ref": "${IMAGE_REPO}:${IMAGE_TAG}",
+  "iso-git-commit": "${ISO_GIT_SHA:-}",
+  "built-at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+}
+EOF
+
 dnf5 clean all
 
-echo "svk installer build.sh complete for ${IMAGE_REPO}:${IMAGE_TAG} (${FLAVOR})"
+echo "svk installer build.sh complete for ${IMAGE_REPO}:${IMAGE_TAG} (${FLAVOR}), iso-git-commit=${ISO_GIT_SHA:-<none>}"

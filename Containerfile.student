@@ -17,7 +17,11 @@ FROM ${BASE_IMAGE}
 
 # Build version (git-tag major + date), passed by CI; stamped into os-release below.
 ARG VERSION=""
+# Full git commit SHA this image was built from — see Containerfile.base for why
+# it's tracked separately from VERSION.
+ARG GIT_SHA=""
 LABEL org.opencontainers.image.version="${VERSION}"
+LABEL org.opencontainers.image.revision="${GIT_SHA}"
 
 # Kiosk config tree:
 #   - usr/lib/sysusers.d/svk-opilas.conf -> the autologin opilas account
@@ -53,7 +57,7 @@ RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
 # ships in svk-base at /usr/libexec/svk/) so this image reports svk-student, not svk-base.
 # PRETTY_NAME becomes "SVK OS (student-<version>)" — the only field the Anaconda
 # WebUI installer (and GNOME's About page) actually displays.
-RUN VERSION="${VERSION}" IMAGE_NAME="svk-student" IMAGE_FLAVOR="student" \
+RUN VERSION="${VERSION}" GIT_SHA="${GIT_SHA}" IMAGE_NAME="svk-student" IMAGE_FLAVOR="student" \
     /usr/libexec/svk/stamp-os-release
 
 RUN bootc container lint --fatal-warnings

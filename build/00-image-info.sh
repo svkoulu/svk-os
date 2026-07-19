@@ -8,10 +8,11 @@
 # image-info.json but under svk-os/, no ublue path/vendor). Fedora's version stays
 # visible via the Silverblue base's own os-release (VERSION_ID / OSTREE_VERSION).
 #
-# Env (from Containerfile ARGs): IMAGE_NAME, IMAGE_VENDOR, VERSION.
+# Env (from Containerfile ARGs): IMAGE_NAME, IMAGE_VENDOR, VERSION, GIT_SHA.
 set -euo pipefail
 
 IMAGE_NAME="${IMAGE_NAME:-svk-base}" \
 IMAGE_VENDOR="${IMAGE_VENDOR:-svkoulu}" \
 VERSION="${VERSION:-}" \
+GIT_SHA="${GIT_SHA:-}" \
 	/usr/libexec/svk/stamp-os-release

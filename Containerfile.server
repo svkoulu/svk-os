@@ -14,7 +14,11 @@ FROM ghcr.io/ublue-os/ucore:stable
 # Consumed by CI's shared build action (passed to every image). The server is uCore,
 # not svk-base, so it keeps uCore's own os-release; this just accepts the build-arg.
 ARG VERSION=""
+# Full git commit SHA this image was built from (server keeps uCore's own os-release,
+# so unlike the desktop images this has nowhere else to land — the label is it).
+ARG GIT_SHA=""
 LABEL org.opencontainers.image.version="${VERSION}"
+LABEL org.opencontainers.image.revision="${GIT_SHA}"
 
 # Server config tree:
 #   - /etc/containers/systemd/registry.container -> pull-through cache quadlet
