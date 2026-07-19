@@ -25,7 +25,8 @@ ARG LUKS_BOOTSTRAP_PASSPHRASE
 
 COPY flatpaks/ /tmp/flatpaks/
 COPY iso/installer/build.sh /tmp/build.sh
-RUN FLAVOR="${FLAVOR}" IMAGE_REF="${IMAGE_REF}" VERSION="${VERSION}" \
+RUN --mount=type=cache,dst=/var/cache/libdnf5 \
+    FLAVOR="${FLAVOR}" IMAGE_REF="${IMAGE_REF}" VERSION="${VERSION}" \
     LUKS_BOOTSTRAP_PASSPHRASE="${LUKS_BOOTSTRAP_PASSPHRASE}" \
     bash /tmp/build.sh \
     && rm -rf /tmp/build.sh /tmp/flatpaks
