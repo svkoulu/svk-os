@@ -1,17 +1,33 @@
-# Builds installer ISOs for the two desktop images with Titanoboa, on demand.
+# Builds installer ISOs for the two desktop images with Titanoboa.
 #
 # Titanoboa squashfs's a throwaway "installer image" (see iso/build-iso.sh +
 # iso/installer/) into a live-boot ISO; that installer image bakes the offline
-# flatpak set + Anaconda, so first boot needs no network. Separate from build.yml:
-# ISOs are only needed when provisioning new hardware, are slow, and produce large
-# artifacts. Run by hand from the Actions tab. Existing machines never need this —
-# they auto-update from the registry.
+# flatpak set + Anaconda, so first boot needs no network. ISOs are only needed when
+# provisioning new hardware, are slow, and produce large artifacts. Existing machines
+# never need this — they auto-update from the registry.
 #
-# STATUS: this pipeline is written but NOT yet validated by a real build. The first
-# run is expected to need iteration (Anaconda/Titanoboa plumbing).
+# Runs two ways:
+#   - Reusable (workflow_call): build.yml calls this per channel AFTER that channel's
+#     images are pushed, so a push to main (testing) or a git tag (stable) refreshes
+#     the installer ISOs alongside the images — same channel routing as build.yml.
+#     The ISO pulls svk-<flavor>:<channel> from GHCR, so it MUST run after the image
+#     build, which is why build.yml chains it with `needs` rather than triggering here.
+#   - Manual (workflow_dispatch): on-demand run from the Actions tab, pick image +
+#     channel (e.g. to rebuild an ISO without republishing the images).
 name: iso
 
 on:
+  workflow_call:
+    inputs:
+      channel:
+        description: stable | testing.
+        required: true
+        type: string
+      image:
+        description: Which ISO(s) to build.
+        required: false
+        type: string
+        default: both
   workflow_dispatch:
     inputs:
       image:

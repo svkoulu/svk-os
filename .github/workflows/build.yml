@@ -119,3 +119,23 @@ jobs:
       ref: main
       date: ${{ needs.setup.outputs.date }}
     secrets: inherit
+
+  # ---- Installer ISOs: rebuilt on every push (main -> testing, tag -> stable),
+  # after that channel's images land in GHCR (the ISO pulls svk-<flavor>:<channel>).
+  # Restricted to push events so the weekly cron and manual dispatch only refresh the
+  # images, not the slow, large ISOs — run those on demand via iso.yml directly. ----
+  stable-iso:
+    needs: [setup, stable]
+    if: needs.setup.outputs.do_stable == 'true' && github.event_name == 'push'
+    uses: ./.github/workflows/iso.yml
+    with:
+      channel: stable
+    secrets: inherit
+
+  testing-iso:
+    needs: [setup, testing]
+    if: needs.setup.outputs.do_testing == 'true' && github.event_name == 'push'
+    uses: ./.github/workflows/iso.yml
+    with:
+      channel: testing
+    secrets: inherit
