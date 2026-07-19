@@ -86,9 +86,10 @@ mkdir -p /var/lib/rpm-state # needed for Anaconda's WebUI front-end
 # No hidden_spokes/hidden_webui_pages here: the WebUI ignores the old GTK spoke
 # names (that's why a hidden UserSpoke still showed the account page), and the
 # modern anaconda-screen-* page ids are Fedora-version-fragile. Instead the
-# kickstart below *pre-satisfies* every step (locale/keyboard/timezone/storage/
-# encryption), so nothing prompts — and for staff it deliberately leaves the
-# account undefined, making the Create Account page the single interactive step.
+# complete kickstart below *pre-satisfies* every step (locale/keyboard/timezone/
+# storage/encryption/account) for BOTH flavors, so nothing prompts at all — staff
+# now bakes its login account too (see the case block), rather than stopping at the
+# Create Account page.
 mkdir -p /etc/anaconda/profile.d
 tee /etc/anaconda/profile.d/svk.conf <<'EOF'
 [Profile]
@@ -154,8 +155,12 @@ mv /tmp/svk-policy.json /etc/containers/policy.json
 #
 #   student — fully unattended: complete kickstart (baked opilas account, locked
 #             root, reboot) delivered via inst.ks= on the boot cmdline (iso.yaml).
-#   staff   — everything preset EXCEPT the account, appended to interactive-defaults.ks
-#             so the WebUI's Create Account page is the single manual step.
+#   staff   — fully unattended too: complete kickstart with a baked `staff` login
+#             (placeholder password, regular user — no sudo; admin handles that over
+#             SSH). This is the validation step that proves the account step can be
+#             fully automated with NO Create Account page; the per-site USB
+#             provisioning config (tasks/todo/20260719-0110-usb-provisioning-config.md)
+#             replaces this placeholder later.
 mkdir -p /usr/share/anaconda/post-scripts
 
 # Directives shared by both flavors. `clearpart --all` + `autopart` remove the disk
@@ -199,9 +204,20 @@ EOF
     } > /usr/share/anaconda/svk-student.ks
     ;;
 staff)
-    # Append to the default-loaded interactive kickstart. No user/rootpw line, so
-    # the WebUI stops at Create Account — the one manual step (username + password).
-    { common_ks; echo 'firstboot --disable'; } >> /usr/share/anaconda/interactive-defaults.ks
+    # Complete, non-interactive kickstart too — no Create Account page. Bakes a
+    # `staff` login as a REGULAR user (no --groups=wheel: local sudo is intentionally
+    # admin-only, over SSH). The password is a deliberate placeholder — `stafff`, 6
+    # chars to clear Anaconda's default `pwpolicy user --minlen=6` — that lets us
+    # confirm end-to-end that staff can install with zero manual steps. The per-site
+    # USB provisioning config replaces this with the real account(s) later; when it
+    # lands, its %pre-generated `user` line supersedes this one.
+    { common_ks; cat <<'EOF'
+user --name=staff --gecos="Staff" --password=stafff --plaintext
+rootpw --lock
+firstboot --disable
+reboot
+EOF
+    } > /usr/share/anaconda/svk-staff.ks
     ;;
 esac
 
@@ -329,11 +345,10 @@ EOF
 systemctl enable var-lib-flatpak.mount
 
 ### Titanoboa contract: /usr/lib/bootc-image-builder/iso.yaml ##################
-# student boots straight into the complete kickstart (inst.ks=) for a zero-click
-# install; staff omits it so Anaconda loads the default interactive-defaults.ks and
-# stops only at the Create Account page.
-KS_ARG=""
-[[ "$FLAVOR" == "student" ]] && KS_ARG=" inst.ks=file:///usr/share/anaconda/svk-student.ks"
+# Both flavors boot straight into their complete kickstart (inst.ks=) for a
+# zero-click install — student with the baked opilas kiosk, staff with the baked
+# `staff` login. Neither shows an Anaconda spoke.
+KS_ARG=" inst.ks=file:///usr/share/anaconda/svk-${FLAVOR}.ks"
 
 mkdir -p /usr/lib/bootc-image-builder
 tee /usr/lib/bootc-image-builder/iso.yaml <<EOF

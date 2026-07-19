@@ -43,8 +43,18 @@ the image. One ISO becomes reusable across sites/accounts without a rebuild.
 - **Config also carries locale/keyboard/timezone** (optional; defaults
   `fi_FI.UTF-8` / `fi` / `Europe/Helsinki`).
 - **No-USB fallback:** student = `opilas` only + defaults (unchanged, still
-  zero-click); staff = the current interactive Create Account page + defaults
-  (unchanged). No password is ever baked into the image.
+  zero-click); staff = the baked placeholder `staff` login + defaults. No secret is
+  in the repo/image beyond that well-known placeholder, which must be changed.
+
+> **Update (2026-07-19) — staff automation landed ahead of this suite.** As the
+> validation step the operator asked for, staff no longer stops at the WebUI Create
+> Account page: it now installs via a **complete `inst.ks=` kickstart** (like
+> student) with a baked placeholder `staff` account (`iso/installer/build.sh`, staff
+> case). This **resolves the R4/"validation caveat" below** — there is no WebUI
+> accounts-page ambiguity to worry about, because the account is fully preset in the
+> kickstart. When this USB suite is implemented, the `%pre`-generated `user` line
+> supersedes the baked placeholder; **decide then** whether the no-USB staff
+> fallback keeps that placeholder or reverts to an interactive account page.
 
 ## Config schema (`iso/svk-provision.yaml.example`)
 

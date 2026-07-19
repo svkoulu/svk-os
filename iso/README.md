@@ -69,17 +69,25 @@ ISO lands at `iso/svk-student-<version>.iso`.
 
 ## Install automation & disk encryption
 
-The kickstart pre-answers every Anaconda step, so the two flavors differ only in
-whether an account is asked for:
+The kickstart pre-answers every Anaconda step, so **both** flavors install with no
+manual steps:
 
 | | student | staff |
 |---|---|---|
-| Delivery | complete kickstart via `inst.ks=` (`svk-student.ks`) | default `interactive-defaults.ks` |
-| Manual steps | **none** — installs and reboots on its own | **only** Create Account (username + password) |
-| Account | baked `opilas` (sysusers.d); root locked | created on the WebUI Accounts page |
+| Delivery | complete kickstart via `inst.ks=` (`svk-student.ks`) | complete kickstart via `inst.ks=` (`svk-staff.ks`) |
+| Manual steps | **none** — installs and reboots on its own | **none** — installs and reboots on its own |
+| Account | baked `opilas` (sysusers.d); root locked | baked `staff` login (regular user, no sudo); root locked |
 | Language / keyboard | Finnish (`fi_FI.UTF-8`, `fi` layout) | same |
 | Timezone | Europe/Helsinki | same |
 | Disk | wipe all disks → btrfs autopart, LUKS-encrypted | same |
+
+The staff account is currently a **placeholder** — username `staff`, password
+`stafff` (6 chars to clear Anaconda's default `pwpolicy user --minlen=6`), a regular
+non-sudo user (local admin is intentionally SSH-only via the `admin` account). It
+exists to confirm staff can install fully unattended; the per-site **USB
+provisioning config** (`tasks/todo/20260719-0110-usb-provisioning-config.md`) will
+replace it with the real account(s) read from the SVK-PROV USB. **Change the staff
+password on first login / before the fleet ships.**
 
 **Disk encryption (LUKS + TPM2).** Anaconda creates the LUKS container with a
 throwaway *bootstrap* passphrase generated fresh per ISO build (`build-iso.sh`
@@ -136,8 +144,9 @@ item; it repurposes the GPG-key-extraction logic from the old
 - [ ] **Validate an end-to-end build** fix Anaconda profile / kickstart
       as needed.
 - [x] **Install automation** — Finnish locale/keyboard, Helsinki TZ, full-disk
-      LUKS auto-partition; student zero-click, staff account-only. *(code; needs
-      the on-hardware validation above.)*
+      LUKS auto-partition; **both flavors zero-click** (student = baked `opilas`;
+      staff = baked placeholder `staff` login, to be replaced by the USB
+      provisioning config). *(code; needs the on-hardware validation above.)*
 - [ ] **Validate TPM2 auto-unlock + on-screen recovery key** on real hardware
       (see "Install automation & disk encryption").
 - [x] **Per-image branding** — done: student/staff stamp their own os-release via
