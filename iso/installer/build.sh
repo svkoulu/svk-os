@@ -133,22 +133,13 @@ EOF
 # actual signature enforcement.
 cp /etc/containers/policy.json /tmp/svk-policy.json
 echo '{"default":[{"type":"insecureAcceptAnything"}]}' > /etc/containers/policy.json
-# iso/build-iso.sh binds root's real containers-storage read-only at
-# /usr/lib/containers/storage and already pulled BASE_IMAGE into it a few steps
-# ago. If that's also the exact ref we need here, reload it from there (fast,
-# no network) instead of re-pulling — matches ublue-os/bazzite's installer/build.sh.
-# --storage-opt additionalimagestore='' forces the load to write a full copy into
-# THIS image's own writable storage rather than a lazy reference into the bind
-# mount, since only the writable copy is actually baked into the built image (the
-# host mount is gone once the build finishes). `podman image exists` guards the
-# repo=local case, where BASE_IMAGE (what got pulled there) is a local dev tag,
-# not the real ${IMAGE_REPO}:${IMAGE_TAG} ref ostreecontainer needs below.
-if mountpoint -q /usr/lib/containers/storage && podman image exists "${IMAGE_REPO}:${IMAGE_TAG}"; then
-    podman save --format oci-archive "${IMAGE_REPO}:${IMAGE_TAG}" \
-        | podman load --storage-opt additionalimagestore=''
-else
-    podman pull "${IMAGE_REPO}:${IMAGE_TAG}"
-fi
+# Always a fresh, direct pull — no reuse-from-host-storage shortcut. A prior
+# `save | load --storage-opt additionalimagestore=''` version of this reload,
+# from a read-only bind-mounted additional store, produced an image with a
+# layer missing from storage ("layer not known" from `ostree container image
+# deploy` at install time — confirmed via packaging.log from a real install).
+# A plain pull reliably writes every layer into primary storage itself.
+podman pull "${IMAGE_REPO}:${IMAGE_TAG}"
 mv /tmp/svk-policy.json /etc/containers/policy.json
 
 ### Kickstart #################################################################

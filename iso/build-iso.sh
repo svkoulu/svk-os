@@ -89,19 +89,8 @@ IMG_VERSION="$(sudo "$PODMAN" inspect --format '{{index .Config.Labels "org.open
 # recovery key, so it never unlocks anything on the deployed fleet.
 LUKS_BOOTSTRAP_PASSPHRASE="$(openssl rand -base64 24)"
 INSTALLER_IMAGE="localhost/svk-${flavor}-installer:latest"
-# Bind root's real containers-storage in read-only at /usr/lib/containers/storage
-# (the "additional image store" convention) so build.sh's nested pull can reload
-# BASE_IMAGE from there instead of re-fetching it over the network — it was just
-# pulled into that exact storage a few lines up. Matches ublue-os/bazzite's actual
-# installer/build.sh (verified against the live repo, not the possibly-stale
-# vendored examples/ under iso/.build/*/examples/): it does
-# `podman save ... | podman load --storage-opt additionalimagestore=''` when this
-# mountpoint is present, falling back to a plain `podman pull` otherwise — same
-# fallback build.sh already uses here for the repo=local case, where the ref
-# ostreecontainer needs (the real ghcr one) was never pulled into root's storage.
 sudo "$PODMAN" build \
     --cap-add sys_admin --security-opt label=disable \
-    --volume /var/lib/containers/storage:/usr/lib/containers/storage:ro \
     --build-arg BASE_IMAGE="$BASE_IMAGE" \
     --build-arg FLAVOR="$flavor" \
     --build-arg IMAGE_REF="$IMAGE_REF" \
