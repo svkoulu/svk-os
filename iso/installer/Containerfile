@@ -19,9 +19,9 @@ ARG IMAGE_REF
 # read by iso/build-iso.sh before this build. Blank for a local image with no
 # version label. Used only to name the GRUB boot-menu entry.
 ARG VERSION
-# Temporary LUKS passphrase to create the encrypted disk at install; generated
-# fresh per ISO build by iso/build-iso.sh and wiped on the target at first boot.
-ARG LUKS_BOOTSTRAP_PASSPHRASE
+# NOTE: no LUKS passphrase build-arg — the disk-encryption passphrase is generated
+# per-install in the kickstart's %pre (iso/installer/build.sh), so nothing secret is
+# baked into this image.
 # Full git commit SHA of the svk repo checkout that ran iso/build-iso.sh — NOT
 # necessarily the same commit that built BASE_IMAGE (you can rebuild an ISO with
 # newer iso/ scripts against an already-published older image). Stamped into the
@@ -33,7 +33,6 @@ COPY flatpaks/ /tmp/flatpaks/
 COPY iso/installer/build.sh /tmp/build.sh
 RUN --mount=type=cache,dst=/var/cache/libdnf5 \
     FLAVOR="${FLAVOR}" IMAGE_REF="${IMAGE_REF}" VERSION="${VERSION}" \
-    LUKS_BOOTSTRAP_PASSPHRASE="${LUKS_BOOTSTRAP_PASSPHRASE}" \
     ISO_GIT_SHA="${ISO_GIT_SHA}" \
     bash /tmp/build.sh \
     && rm -rf /tmp/build.sh /tmp/flatpaks

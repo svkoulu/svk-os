@@ -56,6 +56,18 @@ the image. One ISO becomes reusable across sites/accounts without a rebuild.
 > supersedes the baked placeholder; **decide then** whether the no-USB staff
 > fallback keeps that placeholder or reverts to an interactive account page.
 
+> **Update (2026-07-20) — per-install LUKS passphrase landed; this suite owns the
+> no-TPM fallback.** The disk-encryption passphrase is now minted per-install in the
+> kickstart's `%pre` (`iso/installer/build.sh`, `common_ks`) — no shared secret in the
+> ISO (`build-iso.sh` no longer generates/prints one). For a machine with a TPM this
+> is fully transparent (auto-unlock + first-boot recovery key). The **open gap** is a
+> no-TPM machine: first boot prompts for a passphrase nobody has; the interim is an
+> attended operator reading `/tmp/svk-luks-bootstrap` from the installer console
+> before reboot (documented in `iso/README.md`). **This USB suite is the proper fix:**
+> when `%pre` reads `svk-provision.yaml`, also have it **write that machine's
+> per-install passphrase (or recovery key) to the SVK-PROV USB**, so a no-TPM machine
+> has a retrievable fallback without any secret ever touching the ISO or the repo.
+
 ## Config schema (`iso/svk-provision.yaml.example`)
 
 ```yaml

@@ -89,10 +89,12 @@ provisioning config** (`tasks/todo/20260719-0110-usb-provisioning-config.md`) wi
 replace it with the real account(s) read from the SVK-PROV USB. **Change the staff
 password on first login / before the fleet ships.**
 
-**Disk encryption (LUKS + TPM2).** Anaconda creates the LUKS container with a
-throwaway *bootstrap* passphrase generated fresh per ISO build (`build-iso.sh`
-prints it + writes `*.luks-bootstrap.txt`; both gitignored) and stashed on the
-target as `/etc/svk/luks-bootstrap`.
+**Disk encryption (LUKS + TPM2).** There is **no secret in the ISO.** The LUKS
+passphrase is **generated per install**, in the kickstart's `%pre` (see the
+`common_ks` block in `iso/installer/build.sh`): each machine gets a unique,
+throwaway 32-char passphrase, written to the autopart line via `%include` and
+stashed on the target as `/etc/svk/luks-bootstrap` for enrollment. Nothing is baked
+into the installer image, and `build-iso.sh` neither prints nor saves a passphrase.
 
 The **TPM2 is pre-enrolled at install time** (`svk-luks-tpm.ks` `%post`, bound to
 **PCR 7** — the only PCR that's identical in the installer and the installed system
@@ -105,16 +107,45 @@ base image):
    code — **photograph it during provisioning; it can never be retrieved again**;
 2. confirms the TPM2 enrollment (or enrolls it as a fallback if install-time failed);
 3. adds `tpm2-device=auto` to `/etc/crypttab` (belt-and-suspenders);
-4. **wipes the bootstrap slot** and deletes the file, so nothing shipped in the ISO
-   can unlock a deployed machine.
+4. **wipes the per-install passphrase slot** and deletes the file, so nothing that
+   existed at install can unlock a deployed machine.
 
-It self-disables afterwards and is a no-op on unencrypted (dev/local) installs. The
-per-build bootstrap passphrase is a **fallback**: only a machine with no TPM (or a
-PCR mismatch) stops at the disk-unlock prompt, where the admin types it once.
+It self-disables afterwards and is a no-op on unencrypted (dev/local) installs.
+
+**No-TPM machines.** With no shared passphrase to print, the fallback for a machine
+that can't enroll a TPM (so first boot stops at the disk-unlock prompt) is:
+attended, capture the one-time per-install passphrase from the installer console
+**before the auto-reboot** — switch to a VT with `Ctrl+Alt+F2` and run
+`cat /tmp/svk-luks-bootstrap`. The proper fix is the **USB provisioning config**
+(`tasks/todo/20260719-0110-usb-provisioning-config.md`), which will write the
+per-machine passphrase to the physically-controlled SVK-PROV USB instead. On
+target hardware (TPM 2.0 standard), this path is not normally hit.
+
 ⚠️ **Not yet validated on hardware** — confirm a TPM machine auto-unlocks (test it in
 a VM with an emulated TPM first: `just run-iso <flavor>`, see below). If it still prompts
 every boot despite a TPM, the initramfs isn't honouring `rd.luks.options`; the recovery
 key always works meanwhile.
+
+## Build metadata & provenance — where to find it
+
+Every ISO carries its provenance in several places, from "readable without booting"
+to "baked deep inside." When correlating a machine, an ISO, or a captured log bundle
+with the exact source it came from, look here:
+
+| File | Where it lives | Contains | How to read it |
+|---|---|---|---|
+| `iso/svk-<flavor>-<version>.build-info.json` | **Next to the ISO**, and in the CI artifact zip alongside it | flavor, channel, image-ref, image-version, **packaged-image commit**, **iso/ scripts commit**, iso filename, build timestamp | open the file (no boot/unsquash needed) — the fast path |
+| CI artifact name | GitHub Actions | `svk-<flavor>-<channel>-<shortsha>-iso` | the downloaded zip's name is self-identifying |
+| `/usr/share/svk-os/iso-build-info.json` | Inside the ISO's **live/installer env** (the squashfs) | flavor, image-ref, **iso/ scripts commit**, built-at | boot the installer and `cat` it, or `unsquashfs` `LiveOS/squashfs.img` |
+| `/usr/share/svk-os/image-info.json` | Inside the **installed image** | image identity + **`git-commit`** of the packaged image | on a running machine, `cat` it |
+| os-release `BUILD_ID` / `IMAGE_VERSION` | Inside the **installed image** | packaged-image commit / version string | `cat /etc/os-release` on a running machine |
+
+The `.build-info.json` sidecar is the deliberate answer to "which commit is this
+downloaded ISO?" — the deeper copies (squashfs, installed image) can only be read
+after booting or unsquashing. The sidecar is produced by `iso/build-iso.sh` and
+uploaded by `.github/workflows/iso.yml`; it is a build output (gitignored), **not**
+a secret — the per-install LUKS passphrase is minted at install time and appears in
+none of these files.
 
 ## Test the ISO in a VM (`just run-iso`)
 

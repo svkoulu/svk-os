@@ -16,8 +16,9 @@ secrets/*
 output/
 *.iso
 iso/.build/
-# The per-build LUKS bootstrap passphrase written next to each ISO — a secret.
-*.luks-bootstrap.txt
+# Per-build provenance sidecar written next to each ISO (iso/build-iso.sh). Not a
+# secret, but a build output — belongs in the CI artifact, not in git.
+iso/*.build-info.json
 
 # The real student Wi-Fi connection profile holds a plaintext PSK — same
 # secrets-stay-local rule as everything under secrets/. Only the .example

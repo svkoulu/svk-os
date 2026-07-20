@@ -90,10 +90,22 @@ jobs:
         if: steps.gate.outputs.run == 'true'
         run: bash iso/build-iso.sh "${{ matrix.flavor }}" ghcr "${{ inputs.channel }}"
 
+      - name: Short commit SHA
+        if: steps.gate.outputs.run == 'true'
+        id: sha
+        run: echo "short=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
+      # Name the artifact with channel + commit so the downloaded zip is
+      # self-identifying (e.g. svk-staff-testing-a1b2c3d-iso.zip). Upload the ISO
+      # plus its build-info.json provenance sidecar (iso/build-iso.sh). The glob is
+      # kept narrow ON PURPOSE — the ISO is a large, sensitive artifact, and nothing
+      # else under iso/ (build caches, any local sidecars) should be swept in.
       - name: Upload ISO artifact
         if: steps.gate.outputs.run == 'true'
         uses: actions/upload-artifact@v7
         with:
-          name: svk-${{ matrix.flavor }}-${{ inputs.channel }}-iso
-          path: iso/svk-${{ matrix.flavor }}-*.iso
+          name: svk-${{ matrix.flavor }}-${{ inputs.channel }}-${{ steps.sha.outputs.short }}-iso
+          path: |
+            iso/svk-${{ matrix.flavor }}-*.iso
+            iso/svk-${{ matrix.flavor }}-*.build-info.json
           if-no-files-found: error

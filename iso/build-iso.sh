@@ -92,11 +92,10 @@ IMG_GIT_SHA="$(sudo "$PODMAN" inspect --format '{{index .Config.Labels "org.open
 # svk-os/iso-build-info.json (see iso/installer/build.sh).
 ISO_GIT_SHA="$(git -C "$REPO_ROOT" rev-parse HEAD 2>/dev/null || true)"
 
-# Temporary LUKS passphrase used only to create the encrypted disk during install.
-# Fresh per build so it isn't a committed/reused secret; the target's first-boot
-# svk-luks-tpm-enroll.service wipes this slot after enrolling TPM2 + a per-machine
-# recovery key, so it never unlocks anything on the deployed fleet.
-LUKS_BOOTSTRAP_PASSPHRASE="$(openssl rand -base64 24)"
+# NOTE: no LUKS passphrase is generated or passed here. The disk-encryption
+# passphrase is minted per-install in the kickstart's %pre (iso/installer/build.sh),
+# unique per machine and wiped at first boot — so no shared secret is baked into the
+# ISO and none is printed/saved by this build.
 INSTALLER_IMAGE="localhost/svk-${flavor}-installer:latest"
 sudo "$PODMAN" build \
     --cap-add sys_admin --security-opt label=disable \
@@ -104,7 +103,6 @@ sudo "$PODMAN" build \
     --build-arg FLAVOR="$flavor" \
     --build-arg IMAGE_REF="$IMAGE_REF" \
     --build-arg VERSION="$IMG_VERSION" \
-    --build-arg LUKS_BOOTSTRAP_PASSPHRASE="$LUKS_BOOTSTRAP_PASSPHRASE" \
     --build-arg ISO_GIT_SHA="$ISO_GIT_SHA" \
     -t "$INSTALLER_IMAGE" \
     -f "${REPO_ROOT}/iso/installer/Containerfile" \
@@ -157,21 +155,33 @@ out="${REPO_ROOT}/iso/svk-${flavor}-${img_ver}.iso"
 sudo chown "$(id -u):$(id -g)" "$iso_path"
 mv "$iso_path" "$out"
 
-# Surface the bootstrap passphrase as a FALLBACK. The TPM is pre-enrolled at install
-# time (svk-luks-tpm.ks %post), so machines with a TPM auto-unlock from first boot
-# with no prompt. This passphrase is only needed if a machine has no TPM (or a PCR
-# mismatch) and stops at the disk-unlock prompt. Written 0600 next to the ISO
-# (gitignored) and echoed; the first-boot service wipes it from installed machines.
-pass_file="${out%.iso}.luks-bootstrap.txt"
-( umask 077; printf '%s\n' "$LUKS_BOOTSTRAP_PASSPHRASE" >"$pass_file" )
+# Provenance sidecar next to the ISO — full build metadata in one readable file that
+# rides along in the CI artifact (see .github/workflows/iso.yml) so an ISO can be
+# identified without booting it or unsquashing it. Superset of what's baked inside
+# the ISO's live env (svk-os/iso-build-info.json) and inside the installed image
+# (svk-os/image-info.json). Contains NO secret — the per-install LUKS passphrase is
+# minted at install time, not here. Documented in iso/README.md ("Build metadata").
+info_file="${out%.iso}.build-info.json"
+cat >"$info_file" <<EOF
+{
+  "flavor": "${flavor}",
+  "channel": "${channel}",
+  "image-ref": "${IMAGE_REF}",
+  "image-version": "${IMG_VERSION:-}",
+  "packaged-image-commit": "${IMG_GIT_SHA:-}",
+  "iso-scripts-commit": "${ISO_GIT_SHA:-}",
+  "iso-file": "$(basename "$out")",
+  "built-at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+}
+EOF
 echo "SUCCESS: ${out}"
 echo
 echo "  Packaged image commit (svk-${flavor}): ${IMG_GIT_SHA:-<none>}"
 echo "  iso/ scripts commit (this build):      ${ISO_GIT_SHA:-<none>}"
+echo "  Build metadata sidecar:                ${info_file}"
 echo
-echo "  LUKS bootstrap passphrase for this ISO (FALLBACK only — the TPM is pre-enrolled"
-echo "  so machines normally auto-unlock; needed if one has no TPM and prompts):"
-echo
-echo "      ${LUKS_BOOTSTRAP_PASSPHRASE}"
-echo
-echo "  Also saved to: ${pass_file}  (keep it safe; delete once all machines are provisioned)"
+echo "  Disk encryption: the LUKS passphrase is generated per-install (nothing secret"
+echo "  in this ISO). Each machine shows its own one-time recovery key on first boot —"
+echo "  photograph it during provisioning. For a machine with NO TPM, capture the"
+echo "  one-time passphrase from the installer console before it reboots"
+echo "  (Ctrl+Alt+F3, then: cat /tmp/svk-luks-bootstrap)."
