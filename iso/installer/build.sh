@@ -66,11 +66,19 @@ for unit in rpm-ostree-countme.service tailscaled.service bootloader-update.serv
 done
 
 ### Install Anaconda into the live ISO #########################################
+#
+# `tmux` is not optional: the automated boot entry runs Anaconda under
+# anaconda.target, whose anaconda.service is literally `tmux -f
+# /usr/share/anaconda/tmux.conf start` (that tmux.conf is what spawns `anaconda`,
+# plus the log-tail windows). anaconda-direct.service doesn't get you out of it —
+# it `Requires=anaconda.service` too. Silverblue doesn't ship tmux, so without
+# this the automated entry dies at "anaconda.service: Failed to execute command".
 dnf5 install -y \
     libblockdev-btrfs \
     libblockdev-lvm \
     libblockdev-dm \
     anaconda-live \
+    tmux \
     firefox            # live-env browser only; not in the installed svk image
 
 mkdir -p /var/lib/rpm-state # needed for Anaconda's WebUI front-end
@@ -152,7 +160,8 @@ mv /tmp/svk-policy.json /etc/containers/policy.json
 # Boot enrollment.
 #
 #   student — fully unattended: complete kickstart (baked opilas account, locked
-#             root, reboot) delivered via inst.ks= on the boot cmdline (iso.yaml).
+#             root, reboot) delivered via inst.kickstart= on the boot cmdline of
+#             the automated GRUB entry (iso.yaml).
 #   staff   — fully unattended too: complete kickstart with a baked `staff` login
 #             (placeholder password, regular user — no sudo; admin handles that over
 #             SSH). This is the validation step that proves the account step can be
@@ -214,7 +223,8 @@ case "$FLAVOR" in
 student)
     # Complete, non-interactive kickstart: no account page (opilas is baked into the
     # image via sysusers.d), root locked, auto-reboot when done. Referenced by
-    # inst.ks= in iso.yaml so Anaconda runs it start-to-finish with no clicks.
+    # the automated entry's inst.kickstart= in iso.yaml, so Anaconda runs it
+    # start-to-finish with no clicks.
     { common_ks; cat <<'EOF'
 rootpw --lock
 firstboot --disable
@@ -239,6 +249,37 @@ EOF
     } > /usr/share/anaconda/svk-staff.ks
     ;;
 esac
+
+# The live-desktop GRUB entries carry no kickstart at all, so if the operator
+# installs from the live session ("Install to Hard Drive" -> liveinst -> `anaconda
+# --liveinst`), Anaconda reads exactly one kickstart: interactive-defaults.ks. It
+# ships EMPTY, and an empty one is not harmless here — with no `ostreecontainer`
+# the payload falls back to LiveOSPayload, which would dump the throwaway installer
+# rootfs onto the disk as a plain, non-bootc system that never updates. So give
+# that path the payload + the same %post steps, and let the UI collect
+# language/disk/account.
+#
+# Deliberately NOT included: the %pre-minted LUKS passphrase and autopart/user/
+# reboot — those are the operator's choices in this path. A machine installed this
+# way is encrypted with the passphrase the operator typed and gets NO TPM
+# enrollment (see the guard in svk-luks-bootstrap.ks), so it prompts for that
+# passphrase on every boot. This path is a fallback for odd hardware, not the
+# fleet's provisioning route.
+cat >/usr/share/anaconda/interactive-defaults.ks <<EOF
+# svk defaults for an INTERACTIVE install from the live desktop session.
+# The unattended route is the automated GRUB entry -> svk-${FLAVOR}.ks.
+lang fi_FI.UTF-8
+keyboard --vckeymap=fi --xlayouts=fi
+timezone Europe/Helsinki --utc
+
+ostreecontainer --url=${IMAGE_REPO}:${IMAGE_TAG} --transport=containers-storage --no-signature-verification
+%include /usr/share/anaconda/post-scripts/svk-configure-upgrade.ks
+%include /usr/share/anaconda/post-scripts/svk-disable-fedora-flatpak.ks
+%include /usr/share/anaconda/post-scripts/svk-install-flatpaks.ks
+%include /usr/share/anaconda/post-scripts/svk-flatpak-selinux.ks
+%include /usr/share/anaconda/post-scripts/svk-luks-bootstrap.ks
+%include /usr/share/anaconda/post-scripts/svk-luks-tpm.ks
+EOF
 
 # Re-point the update source to the signed registry ref.
 tee /usr/share/anaconda/post-scripts/svk-configure-upgrade.ks <<EOF
@@ -281,11 +322,19 @@ EOF
 # (files/base/usr/libexec/svk/luks-tpm-enroll) consumes it to enroll the TPM +
 # per-machine recovery key, then WIPES the slot and deletes the file — so it never
 # unlocks anything on the running fleet, and no shared secret was ever in the ISO.
+#
+# The `-f` guard is what lets this same script be shared with interactive-defaults.ks
+# (the live-desktop install path), where there is no %pre and therefore no minted
+# passphrase — without it, --erroronfail would abort that install outright.
 tee /usr/share/anaconda/post-scripts/svk-luks-bootstrap.ks <<'EOF'
 %post --erroronfail --nochroot
 umask 077
-install -d -m 0700 /mnt/sysimage/etc/svk
-install -m 0600 /tmp/svk-luks-bootstrap /mnt/sysimage/etc/svk/luks-bootstrap
+if [ -f /tmp/svk-luks-bootstrap ]; then
+    install -d -m 0700 /mnt/sysimage/etc/svk
+    install -m 0600 /tmp/svk-luks-bootstrap /mnt/sysimage/etc/svk/luks-bootstrap
+else
+    echo "svk: no install-time LUKS passphrase (interactive install); skipping TPM bootstrap."
+fi
 %end
 EOF
 
@@ -362,28 +411,64 @@ Where=/var/lib/flatpak
 Options=bind,ro
 
 [Install]
-WantedBy=multi-user.target
+# Both boot paths: multi-user.target for the live desktop entry, anaconda.target
+# for the automated one (which never reaches multi-user.target).
+WantedBy=multi-user.target anaconda.target
 EOF
 systemctl enable var-lib-flatpak.mount
 
 ### Titanoboa contract: /usr/lib/bootc-image-builder/iso.yaml ##################
-# Both flavors boot straight into their complete kickstart (inst.ks=) for a
-# zero-click install — student with the baked opilas kiosk, staff with the baked
-# `staff` login. Neither shows an Anaconda spoke.
-KS_ARG=" inst.ks=file:///usr/share/anaconda/svk-${FLAVOR}.ks"
+# One squashfs, two boot paths:
+#
+#   entry 0 (default) — AUTOMATED. Boots `systemd.unit=anaconda.target`, i.e. the
+#     same code path a Fedora boot.iso uses, and hands Anaconda the complete
+#     kickstart. Zero clicks: installs and reboots on its own.
+#   entries 1-2 — the live GNOME desktop, unchanged and fully featured (browser,
+#     terminal, disk tools). The operator can still install from it via GNOME's
+#     "Install to Hard Drive", interactively.
+#
+# Why the automated entry can NOT just be the live session plus `inst.ks=`, which
+# is what this file used to do:
+#
+#   1. /usr/bin/liveinst (anaconda-live) greps /proc/cmdline for `inst.ks=`, pops
+#      "Kickstart is not supported on Live ISO installs [...] this installation
+#      will continue interactively", and then DROPS it — it always execs the fixed
+#      `anaconda --liveinst --graphical`.
+#   2. Even handed the file, Anaconda would ignore it: startup_utils.find_kickstart
+#      is gated `if options.ksfile and not options.liveinst`, so under --liveinst
+#      the ONLY kickstart it will read is interactive-defaults.ks.
+#
+# So the automated path must avoid --liveinst entirely, which is exactly what
+# booting anaconda.target does (anaconda.service -> tmux.conf -> bare `anaconda`,
+# no flags — every option below therefore has to come from the boot cmdline).
+#
+# `inst.kickstart=<path>`, not `inst.ks=`: Anaconda's `--ks` is a store_const that
+# always resolves to /run/install/ks.cfg (normally fetched by the dracut anaconda
+# module, which this live initramfs doesn't include) — the value after `inst.ks=`
+# is parsed and thrown away. `--kickstart` is the variant that takes a path, and
+# it wants a plain path, not a file:// URL (it's fed to os.path.exists()).
+#
+# `inst.text`: run the TUI. A complete kickstart needs no UI, and this keeps the
+# automated path from depending on a Wayland compositor (the live image has no
+# gnome-kiosk). Progress prints to the console — hence no `quiet rhgb` here.
+AUTO_ARGS="systemd.unit=anaconda.target inst.text"
+AUTO_ARGS="${AUTO_ARGS} inst.kickstart=/usr/share/anaconda/svk-${FLAVOR}.ks"
 
 mkdir -p /usr/lib/bootc-image-builder
 tee /usr/lib/bootc-image-builder/iso.yaml <<EOF
 label: "${LABEL}"
 grub2:
-  timeout: 10
+  timeout: 15
   default: 0
   entries:
-    - name: "Install ${DISPLAY_NAME}"
-      linux: "/images/pxeboot/vmlinuz quiet rhgb root=live:CDLABEL=${LABEL} enforcing=0 rd.live.image${KS_ARG}"
+    - name: "Install ${DISPLAY_NAME} - automated, ERASES THE DISK"
+      linux: "/images/pxeboot/vmlinuz root=live:CDLABEL=${LABEL} enforcing=0 rd.live.image ${AUTO_ARGS}"
       initrd: "/images/pxeboot/initrd.img"
-    - name: "Install ${DISPLAY_NAME} (Basic Graphics Mode)"
-      linux: "/images/pxeboot/vmlinuz quiet rhgb root=live:CDLABEL=${LABEL} enforcing=0 rd.live.image nomodeset${KS_ARG}"
+    - name: "Live desktop - ${DISPLAY_NAME}"
+      linux: "/images/pxeboot/vmlinuz quiet rhgb root=live:CDLABEL=${LABEL} enforcing=0 rd.live.image"
+      initrd: "/images/pxeboot/initrd.img"
+    - name: "Live desktop - ${DISPLAY_NAME} (Basic Graphics Mode)"
+      linux: "/images/pxeboot/vmlinuz quiet rhgb root=live:CDLABEL=${LABEL} enforcing=0 rd.live.image nomodeset"
       initrd: "/images/pxeboot/initrd.img"
 EOF
 

@@ -23,7 +23,7 @@ Titanoboa's own interface changed upstream.
 | `flatpaks/common.list` | shared fleet apps, baked into **both** ISOs |
 | `flatpaks/student.list` / `staff.list` | per-flavor extras (concatenated with common) |
 | `iso/installer/Containerfile` | builds the throwaway installer image `FROM` the real `svk-<flavor>` image |
-| `iso/installer/build.sh` | installs Anaconda, writes the kickstart (localization + auto-partition + LUKS, `bootc switch`es the origin to the signed registry ref, rsyncs the baked `/var/lib/flatpak` onto the target — **no Secure Boot enrollment**, N4), pre-installs the flatpak set into `/var/lib/flatpak`, adds `dracut-live`/`livesys-scripts` for live-boot, and writes `iso.yaml` |
+| `iso/installer/build.sh` | installs Anaconda (+`tmux`, needed by `anaconda.service`), writes the kickstart (localization + auto-partition + LUKS, `bootc switch`es the origin to the signed registry ref, rsyncs the baked `/var/lib/flatpak` onto the target — **no Secure Boot enrollment**, N4), pre-installs the flatpak set into `/var/lib/flatpak`, adds `dracut-live`/`livesys-scripts` for live-boot, and writes `iso.yaml` |
 | `iso/build-iso.sh` | wrapper: get the base image into root's podman storage, generate a per-build LUKS bootstrap passphrase, build the installer image, run pinned Titanoboa against it, collect the ISO |
 | `files/base/usr/libexec/svk/luks-tpm-enroll` (+ `.service`) | first-boot: TPM2 auto-unlock enrollment + on-screen per-machine recovery key (shipped in the base image, not the ISO) |
 | `.github/workflows/iso.yml` | manual `workflow_dispatch` build of either/both flavors |
@@ -67,14 +67,62 @@ iso/build-iso.sh student ghcr     # or: iso/build-iso.sh student local
 
 ISO lands at `iso/svk-student-<version>.iso`.
 
+## Boot menu: two paths, one squashfs
+
+Each ISO offers two ways to boot, both from the same live filesystem:
+
+| GRUB entry | What it does |
+|---|---|
+| **0 — `Install … - automated, ERASES THE DISK`** (default, 15s) | Boots `systemd.unit=anaconda.target` — the same code path a Fedora **boot.iso** uses — and hands Anaconda the complete kickstart via `inst.kickstart=`. Zero clicks: installs, then reboots. Text UI on the console (no `quiet rhgb`), so provisioning is watchable. |
+| **1/2 — `Live desktop …`** (plain / basic graphics) | The normal live GNOME session, fully featured (browser, terminal, disk tools) for triage and recovery. Installing from it via *Install to Hard Drive* works, but **interactively** — see below. |
+
+> ⚠️ The automated entry is the **default** and erases the target disk after a 15s
+> timeout. Don't leave a provisioning USB in a machine you're only rebooting.
+
+**Why the automated path can't just be the live session with a kickstart** — this
+is the trap the ISO fell into before, and the reason for the split:
+
+1. `/usr/bin/liveinst` (from `anaconda-live`) greps `/proc/cmdline` for `inst.ks=`,
+   prints *"Kickstart is not supported on Live ISO installs, please use netinstall
+   or standard ISO. This installation will continue interactively."*, and then
+   **drops it** — it always execs the fixed `anaconda --liveinst --graphical`.
+2. Even if it passed the file through, Anaconda ignores it:
+   `startup_utils.find_kickstart()` is gated on `if options.ksfile and not
+   options.liveinst`. Under `--liveinst` the *only* kickstart it will read is
+   `/usr/share/anaconda/interactive-defaults.ks`.
+
+Hence the automated entry avoids `--liveinst` altogether by booting
+`anaconda.target`. Two consequences baked into `iso/installer/build.sh`:
+
+- **`tmux` must be installed.** `anaconda.service` is literally
+  `tmux -f /usr/share/anaconda/tmux.conf start`, and that tmux.conf is what spawns
+  `anaconda` (plus the `log`/`storage-log`/`packaging-log` windows — handy during
+  a failed install). `anaconda-direct.service` doesn't avoid it either; it
+  `Requires=anaconda.service`. Silverblue ships no tmux.
+- **`inst.kickstart=<path>`, not `inst.ks=`.** Anaconda's `--ks` is a
+  `store_const` that always resolves to `/run/install/ks.cfg` (normally fetched by
+  the dracut `anaconda` module, which this live initramfs doesn't include) — the
+  value after `inst.ks=` is parsed and thrown away. `--kickstart` is the variant
+  that takes a path, and it wants a plain path, not a `file://` URL.
+
+The live-desktop path gets `interactive-defaults.ks` populated with the
+`ostreecontainer` line and the same `%post` steps. That is **not** cosmetic: an
+empty `interactive-defaults.ks` makes Anaconda fall back to `LiveOSPayload`, which
+would write the throwaway installer rootfs to disk as a plain, non-bootc system
+that never updates. What it deliberately omits is the `%pre`-minted LUKS
+passphrase, `autopart`, the account and `reboot` — the operator supplies those. A
+machine installed this way therefore gets **no TPM enrollment** and prompts for the
+operator's passphrase on every boot. It's a fallback for odd hardware, not the
+fleet's provisioning route.
+
 ## Install automation & disk encryption
 
 The kickstart pre-answers every Anaconda step, so **both** flavors install with no
-manual steps:
+manual steps from the **automated** GRUB entry:
 
 | | student | staff |
 |---|---|---|
-| Delivery | complete kickstart via `inst.ks=` (`svk-student.ks`) | complete kickstart via `inst.ks=` (`svk-staff.ks`) |
+| Delivery | complete kickstart via `inst.kickstart=` (`svk-student.ks`) | complete kickstart via `inst.kickstart=` (`svk-staff.ks`) |
 | Manual steps | **none** — installs and reboots on its own | **none** — installs and reboots on its own |
 | Account | baked `opilas` (sysusers.d); root locked | baked `staff` login (regular user, no sudo); root locked |
 | Language / keyboard | Finnish (`fi_FI.UTF-8`, `fi` layout) | same |
@@ -173,7 +221,9 @@ item; it repurposes the GPG-key-extraction logic from the old
 - [x] **Pin Titanoboa** to a real tested commit in `build-iso.sh` (was `@main`,
       which silently rode upstream's breaking container-native rewrite).
 - [ ] **Validate an end-to-end build** fix Anaconda profile / kickstart
-      as needed.
+      as needed. *(2026-07-21: first on-hardware attempt hit `liveinst`'s
+      "kickstart is not supported on live iso installs" — fixed by the automated
+      `anaconda.target` GRUB entry above; needs a re-test.)*
 - [x] **Install automation** — Finnish locale/keyboard, Helsinki TZ, full-disk
       LUKS auto-partition; **both flavors zero-click** (student = baked `opilas`;
       staff = baked placeholder `staff` login, to be replaced by the USB
