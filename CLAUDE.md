@@ -11,7 +11,7 @@ quay.io/fedora-ostree-desktops/silverblue   (raw Fedora Silverblue, pinned by DI
   └── svk-base       # Tailscale, mDNS, admin SSH, CLI tools, desktop defaults,
         │              power switching, certs, fwupd, ghcr mirror, cosign policy
         ├── svk-student   # locked kiosk: autologin (opilas) + home reset + dconf/polkit lockdown
-        └── svk-staff     # normal desktop; staff install their own --user flatpaks
+        └── svk-staff     # normal desktop, no kiosk lockdown; system-scope flatpaks only (no gnome-software, no terminal/SSH)
 
 ghcr.io/ublue-os/ucore:stable
   └── svk-server     # pull-through registry cache + hostname dispenser + curated Flathub

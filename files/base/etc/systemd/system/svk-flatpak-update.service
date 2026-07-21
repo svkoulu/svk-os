@@ -1,0 +1,17 @@
+# svk-flatpak-update.service — system-scope flatpak updates, weekly (see the
+# companion .timer). Independent of the bootc image update: flatpak update
+# never requires a reboot, so it isn't gated on that job and can run on its own
+# schedule. See tasks/todo/…-fleet-update-cadence.md.
+[Unit]
+Description=svk: update system flatpaks
+Wants=network-online.target
+After=network-online.target
+StartLimitBurst=3
+StartLimitIntervalSec=600
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/svk/svk-update-flatpak
+# Flaky-network resilience: retry a few times before giving up until next week.
+Restart=on-failure
+RestartSec=60s

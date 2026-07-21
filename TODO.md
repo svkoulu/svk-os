@@ -131,9 +131,13 @@ Build a student ISO, install one laptop, and verify **on real hardware**:
 - [ ] **Firefox policy + uBlock Origin** active (`about:policies`, uBO dashboard —
       Social list checked on student, unchecked on staff).
 - [ ] **admin SSH** from the LAN; **image auto-updates** pull through the cache.
-- [ ] **Which updater is active?** `systemctl list-timers` — this repo jitters both
-      `uupd.timer` and `bootc-fetch-apply-updates.timer`; confirm the active one
-      drives updates (move the `10-svk-randomize.conf` drop-in if not).
+- [ ] **Update timers match the per-flavor schedule**: `systemctl list-timers
+      bootc-fetch-apply-updates.timer svk-flatpak-update.timer` on each flavor —
+      student monthly (first Monday), staff/server weekly (Monday), all with the
+      documented `RandomizedDelaySec`; confirm desktops stage only (no forced
+      reboot: `systemctl cat bootc-fetch-apply-updates.service` shows no
+      `--apply`) while the server still applies immediately. `ujust update-status`
+      should agree. See `tasks/todo/…-fleet-update-cadence.md`.
 - [ ] **Student Wi-Fi lockdown**: can't add a second network; Wi-Fi toggle no-ops;
       test **rfkill/airplane mode** (can bypass polkit via udev `uaccess`).
 - [ ] **DNS fail-closed on students** off the school AP (resolution fails rather

@@ -1,0 +1,16 @@
+# svk-flatpak-update.timer — weekly, same Monday-morning window as the image
+# update on staff/server (one known "update day" for the whole fleet).
+# Deliberately the same window on student too, even though the image update
+# there is monthly — flatpak updates carry no reboot/disruption risk, so
+# there's no reason to slow them down to match the image cadence. See
+# tasks/todo/…-fleet-update-cadence.md.
+[Unit]
+Description=svk: weekly flatpak update timer
+
+[Timer]
+OnCalendar=Mon *-*-* 05:00:00
+RandomizedDelaySec=3h
+Persistent=true
+
+[Install]
+WantedBy=timers.target

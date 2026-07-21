@@ -8,6 +8,11 @@
 #   podman build -f Containerfile.staff \
 #     --build-arg BASE_IMAGE=localhost/svk-base:latest -t svk-staff .
 ARG BASE_IMAGE=ghcr.io/svkoulu/svk-base:latest
+
+# ctx: bind-mount build/ (for clean-stage.sh) without shipping it as a layer.
+FROM scratch AS ctx
+COPY build /build
+
 FROM ${BASE_IMAGE}
 
 # Build version (git-tag major + date), passed by CI; stamped into os-release below.
@@ -25,7 +30,19 @@ LABEL org.opencontainers.image.revision="${GIT_SHA}"
 COPY files/staff/ /
 
 COPY build.staff.sh /tmp/build.staff.sh
-RUN bash /tmp/build.staff.sh && rm -f /tmp/build.staff.sh
+# Cache-mount the dnf cache (like svk-base/svk-student) so build.staff.sh's
+# `dnf5 remove` writes to the ephemeral cache, not the image layer — otherwise
+# /var/cache/libdnf5 ships with content and trips the lint's var-tmpfiles check.
+RUN --mount=type=cache,dst=/var/cache/libdnf5 \
+    bash /tmp/build.staff.sh && rm -f /tmp/build.staff.sh
+
+# The dnf5 remove in build.staff.sh dirties /var, /run, /tmp; clean-stage.sh
+# removes those so `bootc container lint --fatal-warnings` passes (same script
+# svk-base/svk-student use; bind-mounted so it isn't shadowed by the tmpfs /tmp).
+RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
+    --mount=type=tmpfs,dst=/tmp \
+    --mount=type=tmpfs,dst=/boot \
+    /ctx/build/clean-stage.sh
 
 # Re-stamp os-release with svk-staff's own identity + version (the shared stamper
 # ships in svk-base at /usr/libexec/svk/) so this image reports svk-staff, not svk-base.

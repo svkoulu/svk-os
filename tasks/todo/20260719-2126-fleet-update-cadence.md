@@ -1,7 +1,18 @@
 # Spec — per-flavor update cadence, manual override, and update logging
 
-Status: **planning only — no repo files touched yet.** This is the design; the
-implementation is a later, separate task.
+Status: **implemented in the working tree, not yet verified.** All resolved
+decisions below are landed in code (see the Implementation outline for exact
+files). No podman/buildah was available to actually build the images in the
+session that implemented this, so **none of the Verification section below has
+been run against a real build/VM yet** — treat this as "should be correct by
+inspection + local `bash -n`/`just --list` checks" only, not "confirmed
+working." Two implementation-time judgment calls worth a second look:
+- `just` was assumed to be in Fedora's own repos (no COPR) — `dnf5 install`
+  will fail loudly at build time if that's wrong, which is safe but untested
+  here.
+- `/var/log/svk` was created `0750 root:root`; `ujust update-status`/`device-info`
+  etc. all read it via `sudo` accordingly — reasonable default, not something
+  the spec originally pinned down.
 
 ## Context — why
 
@@ -145,6 +156,62 @@ reboot ever disrupts an active session.
   still captures the full raw command output automatically (systemd does this
   for any unit) — also set `Storage=persistent` in a journald drop-in so that
   detailed trace survives too, not just the one-line summary.
+- **Fleet-maintenance recipes beyond update/status**, surveyed from
+  `projectbluefin/common`'s own `ujust` files (`~/bluefin-repos/projectbluefin-common`)
+  — most of what's there is desktop/dev-stack tooling that doesn't apply (Docker,
+  VMs, Homebrew, JetBrains, Bazaar, Secure Boot/Nvidia key enrollment, gaming
+  benchmarks), but these are a genuine fit and are added to `svk.just` alongside
+  `update-*`:
+  - `logs-this-boot` / `logs-last-boot` — `sudo journalctl --no-hostname -b 0` /
+    `-b -1`. Straight copy, no adaptation needed.
+  - `check-drift` (from upstream's `check-local-overrides`) — diffs `/usr/etc`
+    vs `/etc` to surface config that's drifted from the shipped image defaults
+    on one specific machine, with the same host-identity excludes upstream uses
+    (machine-id, ssh host keys, hostname, fstab, etc.) plus svk-specific ones
+    (`luks-bootstrap`, tailscale state). Fits directly: the whole point of a
+    bootc fleet is uniform images, so silent local drift is exactly the failure
+    mode worth a cheap diagnostic for.
+  - `channel-status` / `toggle-channel` (from upstream's `toggle-testing`) —
+    read the current channel/version/git-commit straight out of
+    `/usr/share/svk-os/image-info.json` (already stamped by
+    `stamp-os-release`, no new plumbing needed); toggle computes
+    `ghcr.io/svkoulu/<image-name>:<stable|testing>` from the same file and runs
+    `bootc switch --enforce-container-sigpolicy`. Lets an admin pilot a change
+    on one machine outside the normal per-flavor schedule.
+  - `luks-status` — **not** a wrapper around the existing
+    `/usr/libexec/svk/luks-tpm-enroll` (that script is a first-boot-only,
+    stamp-file-guarded one-shot; it no-ops once already enrolled). New, smaller
+    logic: resolve the LUKS device from `/etc/crypttab` (same technique the
+    enroll script uses) and report `systemd-cryptenroll --list <dev>` — read
+    only, safe to run any time.
+  - `device-info` (from upstream, **stripped of its external pastebin upload**)
+    — `bootc status --verbose` + `flatpak list --columns=application,version,options`
+    + `/usr/share/svk-os/image-info.json`, printed to stdout only. Upstream
+    pipes this to a CentOS pastebin by default; that's an unnecessary external
+    network dependency and a privacy problem for a school fleet, so it's cut
+    entirely — the admin is already on the machine over SSH and can copy output
+    directly.
+  - `bios-info` — `dmidecode` manufacturer/product/BIOS version/release date.
+    Cheap fleet-inventory value across 20-30 mixed/hand-me-down machines.
+    Requires adding `dmidecode` to `build/10-packages.sh` (not currently
+    installed).
+  - `clean-flatpaks` — `flatpak uninstall --unused -y`, single confirm prompt.
+    Clears orphaned runtimes left behind by flatpak updates.
+  - `powerwash` — `bootc install reset --experimental` (upstream itself flags
+    this `--experimental`; carry that caveat forward and verify it against
+    svk's actual pinned bootc version before relying on it). Destructive, so
+    gated behind a **typed-hostname confirmation** (`read -p` asking the admin
+    to type the machine's own hostname back, not a simple y/N) rather than
+    upstream's double `gum confirm` — same "make it hard to fat-finger"
+    intent, no `gum` dependency. Useful for wiping/repurposing a machine that's
+    still bootable and SSH-reachable, without needing the Titanoboa USB
+    reinstall flow.
+  - **`pkexec` → `sudo` throughout.** Upstream's recipes use `pkexec` for
+    privileged steps, which depends on a polkit authentication agent — normally
+    supplied by the GUI session (GNOME provides one). These recipes run over a
+    **headless admin SSH session** with no such agent, so every adapted recipe
+    uses `sudo` instead, matching admin's actual NOPASSWD-sudo permission model
+    (`/etc/sudoers.d/10-svk-admin`).
 
 ## Open questions (not yet resolved — need your call before implementation)
 
@@ -205,13 +272,17 @@ reboot ever disrupts an active session.
     `Storage=persistent`.
 14. `custom/ujust/` — delete `custom-apps.just`/`custom-system.just`
     (unwired finpilot boilerplate referencing Homebrew/JetBrains Toolbox, unused
-    by svk); add `custom/ujust/svk-update.just` with the three recipes above.
+    by svk); add `custom/ujust/svk-update.just` (the three update recipes) and
+    `custom/ujust/svk-maintenance.just` (`logs-this-boot`, `logs-last-boot`,
+    `check-drift`, `channel-status`, `toggle-channel`, `luks-status`,
+    `device-info`, `bios-info`, `clean-flatpaks`, `powerwash`).
 15. New build step (base) — install Fedora's own `just` package (confirm it's
     in Fedora's repos, not a COPR, before relying on this), consolidate
     `custom/ujust/*.just` into `/usr/share/svk/svk.just`, and ship
     `/usr/bin/ujust` as a one-line `exec just --justfile
     /usr/share/svk/svk.just "$@"` wrapper. This is genuinely new — today
     nothing consolidates `custom/ujust/` into the image at all.
+16. `build/10-packages.sh` — add `dmidecode`.
 
 ## Verification (for the implementation task)
 
@@ -240,6 +311,22 @@ reboot ever disrupts an active session.
 - Confirm `journalctl -u bootc-fetch-apply-updates.service` and
   `-u svk-flatpak-update.service` survive a reboot (persistent journald
   drop-in took effect).
+- `ujust check-drift` on a freshly-built, un-modified image: confirm it reports
+  **no** diffs (excludes are correctly tuned) — then hand-edit one file under
+  `/etc` and confirm it shows up.
+- `ujust channel-status` reports the correct channel/version/git-commit; `ujust
+  toggle-channel` on a test VM actually switches and the machine boots the
+  other channel's image.
+- `ujust luks-status` on an encrypted test VM correctly reports the TPM2 slot;
+  on an unencrypted dev build it fails gracefully (no crypttab entry) rather
+  than erroring confusingly.
+- `ujust device-info` / `bios-info`: confirm output is useful and **nothing
+  leaves the machine** (no network call).
+- `ujust powerwash`: confirm it refuses to proceed on anything other than an
+  exact hostname match, and that `bootc install reset --experimental` is still
+  the correct invocation for svk's pinned bootc version.
+- Run every recipe as the `admin` user over actual SSH (not a local root
+  shell) to confirm the `pkexec`→`sudo` swap holds up end to end.
 
 ## Out of scope
 

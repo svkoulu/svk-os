@@ -1,0 +1,59 @@
+#!/usr/bin/bash
+# svk-update-image — wraps `bootc upgrade --quiet`, logs one line to
+# /var/log/svk/update.log: timestamp, before/after version+digest, duration,
+# exit status. /var/log/svk is real, persistent storage (created by
+# svk-update-log.conf tmpfiles.d) — the log survives across the reboot that
+# picks up the very update it may be describing, which journald-only wouldn't
+# guarantee.
+#
+# ExecStart for bootc-fetch-apply-updates.service (via the
+# 10-svk-no-force-apply.conf drop-in, which points ExecStart here instead of
+# raw `bootc`) and for `ujust update-now`. Deliberately never passes --apply —
+# see tasks/todo/…-fleet-update-cadence.md for why the scheduled/on-demand
+# stage-only path never forces a reboot. `ujust update-apply-now` calls
+# `bootc upgrade --apply --quiet` directly instead of this wrapper when an
+# admin actually wants the reboot right now.
+set -euo pipefail
+
+LOG=/var/log/svk/update.log
+start_ts="$(date -u +%FT%TZ)"
+start_epoch=$(date +%s)
+
+image_label() {
+    # $1: .status.booted or .status.staged
+    local version digest
+    version="$(bootc status --format=json | jq -r "${1}.image.version // empty")"
+    digest="$(bootc status --format=json | jq -r "${1}.image.imageDigest // empty")"
+    if [ -z "$version" ] && [ -z "$digest" ]; then
+        echo "unknown"
+        return
+    fi
+    printf '%s@%s' "${version:-?}" "${digest#sha256:}" | cut -c1-40
+}
+
+before="$(image_label .status.booted)"
+
+set +e
+out="$(bootc upgrade --quiet 2>&1)"
+rc=$?
+set -e
+echo "$out"
+
+end_epoch=$(date +%s)
+duration=$((end_epoch - start_epoch))
+
+if [ "$rc" -eq 0 ]; then
+    # A staged deployment only exists if there was something new to pull; if
+    # nothing changed, "after" is still whatever's booted.
+    after="$(image_label .status.staged)"
+    [ "$after" = "unknown" ] && after="$before (no update)"
+    status="ok"
+else
+    after="-"
+    status="failed(rc=${rc})"
+fi
+
+printf '%s\timage\t%s\t%s\t%s\t%ss\n' \
+    "$start_ts" "$before" "$after" "$status" "$duration" >>"$LOG"
+
+exit "$rc"

@@ -1,0 +1,35 @@
+#!/usr/bin/bash
+# svk-update-flatpak — wraps `flatpak update -y --system`, logs one line to the
+# same /var/log/svk/update.log as svk-update-image. --system is explicit (not
+# just the default) so this can never touch a --user installation even if one
+# somehow exists — svk-staff has no --user flatpak path at all (see
+# tasks/todo/…-fleet-update-cadence.md).
+#
+# ExecStart for svk-flatpak-update.service and `ujust update-now`.
+set -euo pipefail
+
+LOG=/var/log/svk/update.log
+start_ts="$(date -u +%FT%TZ)"
+start_epoch=$(date +%s)
+
+set +e
+out="$(flatpak update -y --system 2>&1)"
+rc=$?
+set -e
+echo "$out"
+
+end_epoch=$(date +%s)
+duration=$((end_epoch - start_epoch))
+
+if [ "$rc" -eq 0 ]; then
+    status="ok"
+else
+    status="failed(rc=${rc})"
+fi
+
+# Per-app before/after isn't tracked (system flatpaks are baked once at ISO
+# time; success/failure of the update pass is what matters here) — "-" fields.
+printf '%s\tflatpak\t-\t-\t%s\t%ss\n' \
+    "$start_ts" "$status" "$duration" >>"$LOG"
+
+exit "$rc"

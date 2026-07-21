@@ -35,8 +35,39 @@ dnf5 install -y \
     fd-find \
     glibc-langpack-fi \
     qrencode \
-    tpm2-tools
+    tpm2-tools \
+    dmidecode \
+    jq \
+    just
     # Print stack — add exactly what the school needs, e.g.:
     #   cups-filters gutenprint hplip
     # <<ADD SYSTEM PACKAGES HERE>>  (school fonts, tools, ...)
+echo "::endgroup::"
+
+echo "::group:: ujust — consolidate custom/ujust/*.just, install the wrapper"
+# svk gets its own `ujust`-flavored command rather than ublue-os/bling's actual
+# ujust binary (a COPR package with gum as a runtime dependency — the same
+# class of new-trust-root trade-off already rejected for uupd). This is just a
+# thin exec wrapper around Fedora's own `just`, pointed at a consolidated
+# justfile assembled from custom/ujust/ at build time. See
+# tasks/todo/…-fleet-update-cadence.md.
+mkdir -p /usr/share/svk
+cat >/usr/share/svk/svk.just <<'JUSTEOF'
+# svk.just — consolidated from custom/ujust/*.just at build time by
+# build/10-packages.sh. Run `ujust` with no arguments to list commands.
+_default:
+    @just --justfile {{justfile()}} --list --list-heading $'svk fleet commands:\n' --list-prefix $'  '
+
+JUSTEOF
+for f in /ctx/custom/ujust/*.just; do
+    [ -e "$f" ] || continue
+    cat "$f" >>/usr/share/svk/svk.just
+    printf '\n' >>/usr/share/svk/svk.just
+done
+
+cat >/usr/bin/ujust <<'WRAPEOF'
+#!/usr/bin/bash
+exec just --justfile /usr/share/svk/svk.just "$@"
+WRAPEOF
+chmod 755 /usr/bin/ujust
 echo "::endgroup::"
