@@ -12,11 +12,15 @@ echo "::group:: Lock admin-facing GNOME apps (root-only, not uninstalled)"
 # chmod 700 the binary + remove the .desktop so neither `staff` nor `opilas` can
 # launch these, while `admin` can still reach one via sudo for hands-on diagnostics.
 # Existence-guarded: an app the raw Silverblue base doesn't ship just no-ops.
+#
+# Disks (gnome-disk-utility, an RPM Silverblue ships) is deliberately NOT here:
+# staff need it for USB sticks and disk health, so it's restricted in
+# build.student.sh instead. There is no Disks flatpak on Flathub to install as a
+# substitute — upstream never published one.
 RESTRICT_APPS=(
-    "/usr/bin/gnome-tweaks:org.gnome.tweaks.desktop"     # Tweaks
-    "/usr/bin/ptyxis:org.gnome.Ptyxis.desktop"           # Terminal
-    "/usr/bin/gnome-disks:org.gnome.DiskUtility.desktop" # Disks
-    "/usr/bin/firewall-config:firewall-config.desktop"   # Firewall
+    "/usr/bin/gnome-tweaks:org.gnome.tweaks.desktop"   # Tweaks
+    "/usr/bin/ptyxis:org.gnome.Ptyxis.desktop"         # Terminal
+    "/usr/bin/firewall-config:firewall-config.desktop" # Firewall
 )
 for entry in "${RESTRICT_APPS[@]}"; do
     bin="${entry%%:*}"; desktop="${entry##*:}"

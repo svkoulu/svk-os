@@ -31,6 +31,17 @@ for pkg in gnome-tour malcontent-control; do
 done
 [ ${#to_remove[@]} -gt 0 ] && dnf5 remove -y "${to_remove[@]}"
 
+### Lock Disks (student-only) ##################################################
+# gnome-disk-utility is an RPM Silverblue ships and svk-base deliberately leaves
+# alone (staff need it). Same treatment base gives Tweaks/Terminal/Firewall:
+# chmod 700 the binary + drop the .desktop, so opilas can neither launch it nor
+# see it, while admin still reaches it via sudo. Not uninstalled — udisksd and
+# the rest of the stack stay intact for the desktop's own removable-media
+# handling. Students couldn't act on it anyway: 49-school-lockdown.rules denies
+# every org.freedesktop.udisks2.* action.
+[ -e /usr/bin/gnome-disks ] && chmod 700 /usr/bin/gnome-disks
+rm -f /usr/share/applications/org.gnome.DiskUtility.desktop
+
 ### Bluetooth off by default each boot ########################################
 # The radio/daemon stay available (a student CAN switch it on for the session via
 # Quick Settings); it just resets to off on the next boot.
