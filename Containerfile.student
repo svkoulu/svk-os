@@ -34,6 +34,7 @@ LABEL org.opencontainers.image.revision="${GIT_SHA}"
 #   - etc/NetworkManager/...             -> the one baked Wi-Fi profile (.example template)
 #   - etc/svk/tailscale.conf             -> tag:svk-student, ENROLL=no
 #   - etc/skel/.config/environment.d/    -> opilas session LANG=fi_FI.UTF-8
+#   - usr/share/applications/...         -> NoDisplay stub masking the Disks flatpak
 COPY files/student/ /
 
 # Build script: COPY in, run, remove (a host-context bind mount hits SELinux label
