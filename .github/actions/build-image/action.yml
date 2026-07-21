@@ -77,24 +77,61 @@ runs:
           echo "TAGS=${TAGS}"
           echo "IMMUTABLE=${IMMUTABLE}"        # derived images build FROM base:IMMUTABLE
         } >> "$GITHUB_ENV"
+        # Shared retry wrapper — retries only transient network/registry failures.
+        echo "RETRY=${{ github.action_path }}/../../scripts/retry.sh" >> "$GITHUB_ENV"
 
     - name: Registry login
       shell: bash
+      # The token goes through env + an inner shell so each retry attempt gets its own
+      # copy on stdin (piping into retry.sh would leave later attempts with empty stdin).
+      env:
+        REGISTRY_TOKEN: ${{ inputs.password }}
       run: |
-        echo "${{ inputs.password }}" | podman login "${{ inputs.registry }}" \
-          -u "${{ inputs.username }}" --password-stdin
+        "${RETRY}" 5 bash -c '
+          echo "${REGISTRY_TOKEN}" | podman login "${{ inputs.registry }}" \
+            -u "${{ inputs.username }}" --password-stdin'
+
+    # Pull the FROM image up front, on its own, with retries. The quay/GHCR CDNs drop
+    # blobs mid-transfer often enough that this was the single most common CI failure
+    # ("writing blob: ... unexpected EOF"), and a silently un-rebuilt image means the
+    # fleet silently stops getting updates. Doing it here means a flaky pull costs a
+    # retry of the pull, not of the whole build.
+    - name: Pull base image
+      shell: bash
+      run: |
+        if [ -n "${{ inputs.base_from }}" ]; then
+          BASE_REF="${{ inputs.registry }}/${{ inputs.namespace }}/${{ inputs.base_from }}:${IMMUTABLE}"
+        else
+          # Last FROM in the manifest is the real base (earlier ones are `scratch AS ctx`).
+          BASE_REF="$(awk '$1 == "FROM" { last = $2 } END { print last }' "${{ inputs.containerfile }}")"
+          # name:tag@sha256:... -> name@sha256:... (pull the digest; the tag is decoration)
+          case "${BASE_REF}" in
+            *@sha256:*)
+              name="${BASE_REF%@*}"; digest="${BASE_REF#*@}"
+              case "${name##*/}" in *:*) name="${name%:*}" ;; esac
+              BASE_REF="${name}@${digest}"
+              ;;
+          esac
+        fi
+        echo "Base image: ${BASE_REF}"
+        if [ "${BASE_REF}" != "scratch" ]; then
+          "${RETRY}" 5 podman pull "${BASE_REF}"
+        fi
 
     - name: Build
       shell: bash
       # `bootc container lint` runs as the final RUN in every Containerfile, so
       # a lint failure fails THIS build step loudly. Nothing is pushed if it does.
+      #
+      # Retried too (dnf mirrors and the tailscale repo can also blink), but only on a
+      # transient signature — retry.sh will NOT re-run a lint or package failure.
       run: |
         args=(--build-arg "VERSION=${VERSION}" --build-arg "GIT_SHA=${{ github.sha }}")
         if [ -n "${{ inputs.base_from }}" ]; then
           args+=(--build-arg "BASE_IMAGE=${{ inputs.registry }}/${{ inputs.namespace }}/${{ inputs.base_from }}:${IMMUTABLE}")
         fi
         for t in ${TAGS}; do args+=(-t "${REPO}:${t}"); done
-        podman build -f "${{ inputs.containerfile }}" "${args[@]}" .
+        "${RETRY}" 3 podman build -f "${{ inputs.containerfile }}" "${args[@]}" .
 
     - name: Push
       shell: bash
@@ -104,9 +141,9 @@ runs:
         first=1
         for t in ${TAGS}; do
           if [ "${first}" = 1 ]; then
-            podman push --digestfile=/tmp/digest "${REPO}:${t}"; first=0
+            "${RETRY}" 5 podman push --digestfile=/tmp/digest "${REPO}:${t}"; first=0
           else
-            podman push "${REPO}:${t}"
+            "${RETRY}" 5 podman push "${REPO}:${t}"
           fi
         done
         echo "DIGEST=$(cat /tmp/digest)" >> "$GITHUB_ENV"
@@ -125,7 +162,7 @@ runs:
       # keeps its own auth.json), so without these flags the pull-to-sign is anonymous
       # and GHCR returns UNAUTHORIZED.
       run: |
-        cosign sign --yes --key env://COSIGN_PRIVATE_KEY \
+        "${RETRY}" 5 cosign sign --yes --key env://COSIGN_PRIVATE_KEY \
           --registry-username "${{ inputs.username }}" \
           --registry-password "${{ inputs.password }}" \
           "${REPO}@${DIGEST}"

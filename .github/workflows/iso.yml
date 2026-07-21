@@ -82,13 +82,21 @@ jobs:
 
       - name: Login to GHCR (root's podman — Titanoboa runs under sudo)
         if: steps.gate.outputs.run == 'true'
+        env:
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          echo "${{ secrets.GITHUB_TOKEN }}" | sudo podman login "${REGISTRY}" \
-            -u "${{ github.actor }}" --password-stdin
+          .github/scripts/retry.sh 5 bash -c '
+            echo "${REGISTRY_TOKEN}" | sudo podman login "${REGISTRY}" \
+              -u "${{ github.actor }}" --password-stdin'
 
+      # Retried on transient registry/CDN failures only (retry.sh classifies): the ISO
+      # build pulls the flavor image plus the whole flatpak set, so it has a lot of
+      # network surface, but it is also slow — re-running a real failure isn't worth it.
       - name: Build ISO with Titanoboa
         if: steps.gate.outputs.run == 'true'
-        run: bash iso/build-iso.sh "${{ matrix.flavor }}" ghcr "${{ inputs.channel }}"
+        run: |
+          .github/scripts/retry.sh 2 bash iso/build-iso.sh \
+            "${{ matrix.flavor }}" ghcr "${{ inputs.channel }}"
 
       - name: Short commit SHA
         if: steps.gate.outputs.run == 'true'
