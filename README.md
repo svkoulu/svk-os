@@ -142,6 +142,43 @@ dispenser, and the admin/jump-host SSH flow — are covered in
 sections still describe the current server and network design; only its *build*
 instructions are superseded by this file).
 
+## Signing key
+
+Every image is cosign-signed with the keypair in `cosign.pub` / `cosign.key`
+(private half gitignored, held in the `COSIGN_PRIVATE_KEY` repo secret). The
+public half is baked into every image and enforced on every machine via
+`/etc/containers/policy.json` + `registries.d`.
+
+### Backup
+
+**`COSIGN_PRIVATE_KEY` in GitHub is write-only — you cannot read it back out.**
+If the local `cosign.key` is lost, the key is gone, and *nothing breaks
+immediately*: CI keeps signing, the fleet keeps updating, and you only discover
+the loss on the day you need to rotate or re-sign. Keep the key **and** its
+`COSIGN_PASSWORD` backed up offline, outside GitHub.
+
+### Rotation
+
+Rotation is awkward because the trust anchor lives inside the artifact being
+replaced. A machine that misses the transition rejects every image signed
+afterwards and needs a USB reinstall or physical console access. The sequence:
+
+1. Generate the new keypair.
+2. Build an image **signed with the old key** whose `policy.json` accepts
+   **either** public key, shipping both.
+3. Publish it, and wait until **every** machine has updated to it.
+   **Verify this — do not assume.** (This step is why
+   `tasks/todo/20260726-1908-svk-check-health-service.md` is a prerequisite for
+   safe rotation: it needs per-machine "last successful upgrade" state.)
+4. Only then start signing with the new key alone.
+5. Later, ship an image (signed with the new key) that drops the old public key.
+
+Step 3 is not skippable.
+
+Rotate on suspected compromise or staff departure — not on a calendar. The
+rotation itself carries more fleet risk than an unrotated key sitting in a repo
+secret.
+
 ## More
 
 - Design/architecture and build conventions: [`CLAUDE.md`](CLAUDE.md).
