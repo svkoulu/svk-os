@@ -1,7 +1,9 @@
 # Spec — USB provisioning config for install-time user accounts
 
 Status: **planning only — no repo files touched yet.** This is the design; the
-implementation is a later, separate task.
+implementation is a later, separate task. **Reviewed for staleness 2026-07-26** —
+the core design survives, but four things shifted under it and the fallback table
+was outright wrong; see the update notes below before implementing.
 
 ## Context — why
 
@@ -68,6 +70,45 @@ the image. One ISO becomes reusable across sites/accounts without a rebuild.
 > per-install passphrase (or recovery key) to the SVK-PROV USB**, so a no-TPM machine
 > has a retrievable fallback without any secret ever touching the ISO or the repo.
 
+> **Update (2026-07-26) — staleness review against the current tree, and the
+> single-image collapse.** Re-read alongside `iso/installer/build.sh` as it stands
+> at 9ecc78c. The design holds; four things have moved under it.
+>
+> 1. **The `%pre` block already exists.** Implementation step 4 says to *add* a
+>    `%pre` to `common_ks()`. There is now one at `iso/installer/build.sh:201`
+>    (`%pre --erroronfail`), minting the per-install LUKS passphrase. **Extend it**
+>    — a second `%pre` is legal but pointless, and the passphrase-to-USB write from
+>    the 2026-07-20 note above belongs in the same block anyway.
+> 2. **Locale lives in two places, not one.** Step 4 says to move
+>    `lang`/`keyboard`/`timezone` out of `common_ks()` (`:181-183`). They are
+>    **also** hardcoded at `:271-273` on the live-desktop install path, which has
+>    no `%pre` and therefore cannot consume the `%include`. Decide explicitly:
+>    either leave that path on the baked defaults (fine — it is the attended
+>    fallback route) or give it its own handling. Do not silently fix one and leave
+>    the other.
+> 3. **This task and the single-image collapse
+>    (`20260726-1957-single-image-collapse.md`) now overlap on the staff password.**
+>    The collapse lists "replace the `stafff` placeholder (`:244`)" as in-scope for
+>    itself, on the grounds that with the boundary moving from machine-scoped to
+>    account-scoped, a real staff password becomes load-bearing rather than
+>    cosmetic. **This suite is the real fix** — it removes the baked password
+>    entirely rather than replacing one hardcoded string with another. Whichever
+>    lands first should note it; if the collapse ships first, treat its replacement
+>    password as an interim, not a resolution.
+> 4. **Under the collapse, `FLAVOR` selects a kickstart, not an image.** One ISO
+>    offers two automated GRUB entries (`svk-lab.ks` / `svk-staff.ks`) and the
+>    kickstart is what decides which accounts exist — which is exactly this task's
+>    mechanism. Consequences: the `%pre` in `common_ks()` stays shared and still
+>    applies to both entries (good, unchanged); the emitted `user` line must gain
+>    **`--groups=staff`** for the collapse's new `staff` group, which gates
+>    `gnome-software` and the system-scope-flatpak polkit grant; and the
+>    Verification section's "build both ISOs" becomes one ISO, two entries.
+>
+> Also note the collapse plans a per-user `environment.d` file for `DCONF_PROFILE`
+> and `XDG_DATA_DIRS`. That is per-machine, install-time, account-scoped state —
+> the same shape as everything here. If it is not written by the kickstart, it is
+> a second install-time config mechanism; consider folding it in.
+
 ## Config schema (`iso/svk-provision.yaml.example`)
 
 ```yaml
@@ -112,14 +153,18 @@ logged warning rather than aborting the install):
    `/usr/libexec/svk/parse-provision` in the installer image.
 4. **`iso/installer/build.sh`**:
    - add `python3-pyyaml` to the live `dnf5 install`;
-   - **move `lang`/`keyboard`/`timezone` out of the static `common_ks()`** into the
-     `%pre`-generated include (so the config can override them without a
-     duplicate-directive conflict);
-   - add to the shared `common_ks()` a `%pre` block that `findfs LABEL=SVK-PROV`,
-     mounts ro, runs `/usr/libexec/svk/parse-provision <usb>/svk-provision.yaml
-     /tmp/svk-provision.ks` (falling back to defaults when absent/unreadable), plus
-     a matching `%include /tmp/svk-provision.ks`. Living in `common_ks()` makes it
-     apply to **both** flavors.
+   - **move `lang`/`keyboard`/`timezone` out of the static `common_ks()`**
+     (`:181-183`) into the `%pre`-generated include (so the config can override
+     them without a duplicate-directive conflict). Decide separately what to do
+     about the duplicate at `:271-273` on the live-desktop path — see the
+     2026-07-26 note;
+   - **extend the existing `%pre --erroronfail` block** (`:201`, which already
+     mints the LUKS passphrase) to `findfs LABEL=SVK-PROV`, mount ro, run
+     `/usr/libexec/svk/parse-provision <usb>/svk-provision.yaml
+     /tmp/svk-provision.ks` (falling back to defaults when absent/unreadable), and
+     write this machine's passphrase/recovery key back to the USB; add a matching
+     `%include /tmp/svk-provision.ks`. Living in `common_ks()` makes it apply to
+     **both** flavors / both kickstart entries.
 5. **`iso/build-iso.sh`** — copy `iso/svk-provision.yaml.example` next to the output
    ISO and print a one-line hint (mirrors the existing luks-bootstrap hint).
 6. **`.gitignore`** — ignore `iso/svk-provision.yaml` (a real filled config) as a
@@ -130,33 +175,48 @@ logged warning rather than aborting the install):
 
 ## Fallback behavior
 
-| USB `svk-provision.yaml` | student | staff |
+Corrected 2026-07-26 to match the code. Both flavors are already fully automated
+via `inst.kickstart=`; there is no interactive Create Account page on either path
+any more.
+
+| USB `svk-provision.yaml` | student / lab | staff |
 |---|---|---|
-| **present** | `opilas` (baked) + config users; locale from config | config users created (satisfies the account step); locale from config |
-| **absent / unreadable** | `opilas` only; `fi`/`fi`/Helsinki defaults | interactive Create Account page (current behavior); defaults |
+| **present** | `opilas` (baked) + config users; locale from config | config users created, superseding the baked placeholder; locale from config |
+| **absent / unreadable** | `opilas` only; `fi`/`fi`/Helsinki defaults | baked placeholder `staff` login (`build.sh:244`); defaults |
 
-`admin` (SSH-only) is present on both, always. No secret is ever baked in.
+`admin` (SSH-only) is present on both, always.
 
-**Validation caveat:** on **staff-with-config**, whether Anaconda's WebUI fully
-auto-satisfies the Accounts screen from a kickstart `user` (zero-click) vs. still
-showing it pre-filled is version-dependent — confirm on the real ISO. If true
-zero-click staff-with-config is required and the WebUI still stops, the follow-up
-is to switch staff to a complete `inst.ks=` flow with `gnome-initial-setup` as the
-no-config fallback (documented alternative, not done by default).
+**The no-USB staff case is the decision to make.** Options: keep the placeholder
+(zero-click, but ships a well-known password to any machine installed without a
+USB), or drop the baked `user` line so a no-USB staff install has no login account
+and fails visibly. The second is safer once the boundary is account-scoped — see
+the single-image collapse — but it makes the USB a hard dependency for staff
+installs. Pick one when implementing; do not leave it implicit.
+
+*(The former "Validation caveat" about Anaconda's WebUI Accounts screen is
+**deleted** — it was resolved by the 2026-07-19 update above. Staff installs via a
+complete `inst.ks=` kickstart, so there is no WebUI accounts page to be ambiguous
+about.)*
 
 ## Verification (for the implementation task)
 
 - **Parser unit-check** offline: run `parse-provision.py` against the `.example`
   and malformed inputs (bad username, admin-without-password, missing file) —
   confirm the emitted `.ks` is correct and guards fire.
-- **Build both ISOs** (`just iso student local`, `just iso staff local`) — confirm
-  the installer image builds with `python3-pyyaml` and the parser present.
+- **Build the ISO(s)** — `just iso student local` / `just iso staff local` today;
+  one ISO with two GRUB entries once the single-image collapse lands. Confirm the
+  installer image builds with `python3-pyyaml` and the parser present.
 - **VM install with a fake USB** via `just run-iso`: attach a second disk/volume
   labelled `SVK-PROV` holding a `svk-provision.yaml`; confirm the listed user is
-  created with the right sudo/no-sudo and locale, and that `admin`/`opilas` are
-  unchanged.
-- **VM install with no USB**: confirm student is still zero-click (opilas only) and
-  staff still reaches the Create Account page.
+  created with the right sudo/no-sudo, the right supplementary groups
+  (`staff` post-collapse) and locale, and that `admin`/`opilas` are unchanged.
+- **VM install with no USB**: confirm the lab path is still zero-click (opilas
+  only) and that the staff path does whatever the no-USB decision above settled on
+  — placeholder account, or a visible failure. Not "whatever happens."
+- **Both `%pre` responsibilities coexist**: the LUKS passphrase is still minted and
+  the provisioning config is still parsed in the same block, and a failure in
+  either does not take out the other (`--erroronfail` is set — check that a
+  malformed YAML degrades to defaults rather than aborting the install).
 
 ## Out of scope
 

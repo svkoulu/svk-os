@@ -1,18 +1,24 @@
 # Spec — per-flavor update cadence, manual override, and update logging
 
-Status: **implemented in the working tree, not yet verified.** All resolved
-decisions below are landed in code (see the Implementation outline for exact
-files). No podman/buildah was available to actually build the images in the
-session that implemented this, so **none of the Verification section below has
-been run against a real build/VM yet** — treat this as "should be correct by
-inspection + local `bash -n`/`just --list` checks" only, not "confirmed
-working." Two implementation-time judgment calls worth a second look:
-- `just` was assumed to be in Fedora's own repos (no COPR) — `dnf5 install`
-  will fail loudly at build time if that's wrong, which is safe but untested
-  here.
-- `/var/log/svk` was created `0750 root:root`; `ujust update-status`/`device-info`
-  etc. all read it via `sudo` accordingly — reasonable default, not something
-  the spec originally pinned down.
+Status: **implemented (0cdaf5a) and moved to `tasks/done/` on 2026-07-26.** All
+resolved decisions below are landed in code (see the Implementation outline for
+exact files).
+
+**It has still never been verified against a real build or VM** — no podman was
+available in the session that implemented it, so this is "correct by inspection +
+`bash -n`/`just --list`", not "confirmed working." That verification, and the two
+implementation-time judgment calls that went with it (`just` assumed to be in
+Fedora's own repos, `/var/log/svk` created `0750 root:root`), were **moved to
+`../todo/20260726-2315-hardware-validation.md` §3-5**. The spec is done; the
+proving is tracked there.
+
+The **Open questions** section below is also closed. Its one item — should
+`gnome-software` be excluded from staff to shut the `--user` flatpak-install
+avenue — was answered the *other* way by
+`../todo/20260726-1957-single-image-collapse.md`: staff get `gnome-software` by
+design, gated by group membership rather than removed, with a narrow polkit grant
+for system-scope installs so teachers can install software students can actually
+see. Do not re-open it from this file.
 
 ## Context — why
 

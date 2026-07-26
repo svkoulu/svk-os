@@ -1,7 +1,25 @@
 # Implementation plan — rebuild svk on the modular finpilot pattern
 
-Status: **planning only — no repo files touched yet.** This is the execution
-plan for the spec in
+Status: **DONE 2026-07-26 — closed out and moved to `tasks/done/`.** Phases 0-5
+all landed; the rebuilt state is what `CLAUDE.md` now describes. The checklist
+below is kept as the record of what was decided and why, not as work to do.
+
+Two items were still open when this was closed, and were **extracted into their
+own task files** rather than left buried at the bottom of a 500-line plan:
+
+- step 6(d), the D7 LAN-mirror `flatpak update` client wiring — plus the
+  `archived/` deletion in step 8 that blocks on it →
+  `../todo/20260726-2315-lan-mirror-flatpak-wiring.md`
+- step 7, install-and-exercise a real machine of each role →
+  `../todo/20260726-2315-hardware-validation.md`
+
+Step 6(b) (pin Titanoboa off `@main`) is **done** — `iso/build-iso.sh:28` pins
+`5c457c3d`. Step 8's "merge to `main`" is moot: the work was done on `main`
+directly.
+
+---
+
+This was the execution plan for the spec in
 [`20260717-1822-modular-base-rebuild.md`](20260717-1822-modular-base-rebuild.md).
 Read that spec first for the *why*; this file is the *how*, in order, with the
 concrete file moves and the decisions that must be made before each phase.

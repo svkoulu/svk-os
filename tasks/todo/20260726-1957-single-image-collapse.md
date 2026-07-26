@@ -239,7 +239,11 @@ Also in scope for the ISO, decided in the same session:
   diagnose a failed LUKS/TPM enrollment on site.
 - **Replace the `stafff` placeholder password** (`iso/installer/build.sh:244`).
   With the boundary now account-scoped rather than machine-scoped, a real staff
-  password is load-bearing, not cosmetic.
+  password is load-bearing, not cosmetic. **Interim only** — the real fix is
+  `20260719-0110-usb-provisioning-config.md`, which removes the baked password
+  instead of substituting a better one. Don't treat this as closing the issue.
+- The kickstart's staff `user` line needs **`--groups=staff`** for the new group
+  above; the USB provisioning config's generated `user` line will need it too.
 
 ---
 
