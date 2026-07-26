@@ -64,12 +64,17 @@ restrict() {
     echo "  restricted ${bin} -> group ${group}, mode 0750"
 }
 
+# Every entry is existence-guarded, so an app the base doesn't ship is skipped
+# (loudly, in the build log) rather than silently mishandled. As of Silverblue 44
+# gnome-tweaks and firewall-config are NOT in the base at all — they stay listed
+# so that adding either to 10-packages.sh, or a base that starts shipping them,
+# gets the restriction and the hidden launcher for free.
 WHEEL_ONLY_APPS=(
     /usr/bin/gnome-disks           # Disks
     /usr/bin/ptyxis                # Terminal
     /usr/bin/gnome-system-monitor  # System Monitor
-    /usr/bin/gnome-tweaks          # Tweaks
-    /usr/bin/firewall-config       # Firewall
+    /usr/bin/gnome-tweaks          # Tweaks           (not in Silverblue 44)
+    /usr/bin/firewall-config       # Firewall         (not in Silverblue 44)
 )
 for bin in "${WHEEL_ONLY_APPS[@]}"; do
     restrict "$bin" wheel

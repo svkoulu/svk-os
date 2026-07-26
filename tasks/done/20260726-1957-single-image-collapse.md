@@ -8,7 +8,7 @@ uncovered.
 
 Verified: `svk-os` builds green through `bootc container lint --fatal-warnings`;
 both kickstarts validate against `ksvalidator -v F44`; `systemd-sysusers` run
-against the built image creates `admin` (480) and `svk-staff` (481) and resolves
+against the built image creates `admin` (1000) and `svk-staff` (481) and resolves
 `/usr/bin/gnome-software` to `svk-staff`. **Nothing has been installed on
 hardware or in a VM** — the runtime items (`DCONF_PROFILE`, `XDG_DATA_DIRS`,
 ISO size) moved to `../todo/20260726-2315-hardware-validation.md`.
@@ -315,9 +315,29 @@ Creating user 'admin' (SVK-Admin) with UID 958 and GID 958.
 
 admin's id was therefore *whatever happened to be free on that machine*. The
 property svk actually depends on (below `UID_MIN`, so AccountsService hides it
-from the greeter) held by luck, not design. Moved to **480**, adjacent to
-`svk-staff`, with the same free-id assertion in `build/30-users.sh`. Now
-deterministic: `admin:x:480:480`.
+from the greeter) held by luck, not design.
+
+**Resolved a second time, after review:** rather than another system-range id, the
+three human accounts now take the fleet's regular-user range, fixed on every
+machine:
+
+| id | account | created by |
+|---|---|---|
+| 1000 | `admin` | `sysusers.d`, first boot |
+| 1001 | `staff` | staff kickstart, install time |
+| 1002 | `opilas` | lab kickstart, install time |
+
+Both kickstarts pin **uid and gid** (`group --gid=` before `user --uid= --gid=`),
+because they run at install time — before sysusers creates admin — and an unpinned
+`useradd` takes the lowest free id, which would be 1000. `build/30-users.sh`
+asserts 1000 is free at build time.
+
+The consequence: at uid 1000 admin is at/above `UID_MIN`, so AccountsService no
+longer hides it automatically. It is now hidden **explicitly**, with
+`SystemAccount=true` written to `/var/lib/AccountsService/users/admin` by
+`files/os/etc/tmpfiles.d/svk-admin.conf` (`f+`, so a machine converges back to
+hidden every boot). That file and the sysusers uid are a matched pair — change one
+without the other and admin appears in the login screen.
 
 ### 4. Still open: admin has a locked password, so the GUI is unreachable
 

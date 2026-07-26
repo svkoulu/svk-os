@@ -39,12 +39,17 @@ password is load-bearing. Who can run what:
 | `gnome-disks` | yes | no | no |
 | `ptyxis` (Terminal) | yes | no | no |
 | `gnome-system-monitor` | yes | no | no |
-| `gnome-tweaks` | yes | no | no |
-| `firewall-config` | yes | no | no |
+| `gnome-tweaks`† | yes | no | no |
+| `firewall-config`† | yes | no | no |
+
+† not shipped by Silverblue 44; listed so they're covered automatically if that changes.
 
 Enforced by group ownership + mode `0750` on the binaries (`wheel` for the admin-only
 five, `svk-staff` for gnome-software), with per-account `NoDisplay` stubs prepended to
-`XDG_DATA_DIRS` so the icons disappear too. Staff can install Flatpaks **system-wide**
+`XDG_DATA_DIRS` so the icons disappear too. The three accounts have fixed ids on every
+machine — `admin` 1000, `staff` 1001, `opilas` 1002 — and `admin` is kept out of the
+login screen's user list with `SystemAccount=true`, since at uid 1000 it is no longer
+filtered automatically. Staff can install Flatpaks **system-wide**
 (a narrow polkit grant), because an app installed for students to use has to land
 somewhere `opilas` can see.
 

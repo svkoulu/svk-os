@@ -14,14 +14,20 @@ set -euo pipefail
 # Assert admin's declared id is still free in the base image. A `u admin <id>`
 # entry claims that number as BOTH uid and gid, so a collision on EITHER makes
 # sysusers discard it and allocate something arbitrary at first boot — which is
-# exactly what the previous value (980, colliding with group `power`) did, giving
+# exactly what the original value (980, colliding with group `power`) did, giving
 # a different admin uid on every machine. Silent, so check it loudly here.
-SVK_ADMIN_ID=480
+#
+# 1000 is the first regular-user id, so it is free in any sane base — the real
+# risk for this value is at RUNTIME, not build time: anything that creates a user
+# before sysusers runs takes 1000 and pushes admin onto a fallback id. That is why
+# both kickstarts pin their own accounts to 1001/1002 explicitly (uid AND gid);
+# see iso/installer/build.sh.
+SVK_ADMIN_ID=1000
 if getent passwd "$SVK_ADMIN_ID" >/dev/null 2>&1 || getent group "$SVK_ADMIN_ID" >/dev/null 2>&1; then
     echo "ERROR: uid/gid ${SVK_ADMIN_ID} is taken in the base image —" \
          "systemd-sysusers would silently give admin a different, per-machine id." >&2
     echo "       Pick a free id and change it in files/os/usr/lib/sysusers.d/svk-admin.conf" >&2
-    echo "       and here. 191-958 was empty as of Silverblue 44." >&2
+    echo "       and here, and re-check the kickstarts' uids in iso/installer/build.sh." >&2
     exit 1
 fi
 

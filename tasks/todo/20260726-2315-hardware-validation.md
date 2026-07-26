@@ -83,11 +83,20 @@ LUKS/TPM path, because a broken installer invalidates everything else.
   not locked down at all and nothing currently reports that.
 - mDNS resolution, admin SSH (key-only, `AllowGroups wheel`), hostname claim
   against the server's dispenser.
-- `admin` is hidden from the greeter (uid **480** < `UID_MIN`) but reachable via
-  "Not listed?". **Open question surfaced during the collapse:** sysusers creates
-  admin with a LOCKED password, so "Not listed?" has nothing to authenticate
-  against — decide how an operator actually gets a local GUI session before
-  relying on the admin-only app matrix.
+- **The fleet id map is what it says**: `admin` 1000, `staff` 1001, `opilas` 1002,
+  identical on every machine. Check on both roles — the kickstart accounts are
+  created at install time and admin at first boot, so a pinning mistake shows up
+  as admin landing on some other id.
+- `admin` is **hidden from the greeter's user list**. At uid 1000 this is no
+  longer automatic (it is at/above `UID_MIN`), it comes from
+  `SystemAccount=true` in `/var/lib/AccountsService/users/admin`, written by
+  tmpfiles at boot. Confirm the file exists after first boot AND that admin is
+  genuinely absent from the login screen — and that it survives a reboot and an
+  image update.
+- **Open question surfaced during the collapse:** sysusers creates admin with a
+  LOCKED password, so "Not listed?" has nothing to authenticate against — decide
+  how an operator actually gets a local GUI session before relying on the
+  admin-only app matrix.
 
 ## 3. Update cadence, tooling and logging (0cdaf5a — inspection-only)
 

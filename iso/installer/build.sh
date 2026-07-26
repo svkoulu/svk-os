@@ -252,10 +252,15 @@ EOF
 # laptop would grow a kiosk user too. Its password is locked — GDM's autologin
 # PAM stack doesn't check one — and it is in no privileged group.
 #
-# --uid=1000 keeps it the first regular user, which is what AccountsService shows
-# in the greeter (admin sits at 480, below UID_MIN, and stays hidden).
+# The fleet's id map is fixed on purpose, so every machine looks the same:
+#   1000 admin (sysusers, first boot) / 1001 staff / 1002 opilas
+# Both the uid and the gid are pinned, and the group is created first, because
+# useradd otherwise takes the lowest free id of each — and this runs at INSTALL
+# time, before sysusers has created admin, so an unpinned account would grab 1000
+# out from under it and push admin onto an arbitrary fallback id.
 { common_ks; cat <<'EOF'
-user --name=opilas --uid=1000 --gecos="Kiosk student (opilas)" --lock
+group --name=opilas --gid=1002
+user --name=opilas --uid=1002 --gid=1002 --gecos="Kiosk student (opilas)" --lock
 rootpw --lock
 firstboot --disable
 %include /usr/share/anaconda/post-scripts/svk-role-lab.ks
@@ -271,9 +276,12 @@ EOF
 # created by sysusers.d in the image, so it already exists here.
 #
 # It is deliberately NOT called `staff`: useradd refuses to create a user whose
-# user-private group name is already taken, which would abort this install.
+# user-private group name is already taken, which would abort this install. The
+# user-private `staff` group is created explicitly below so its gid is pinned to
+# 1001 — see the id-map note on the lab kickstart above.
 { common_ks; cat <<EOF
-user --name=staff --gecos="Staff" --groups=svk-staff --password=${STAFF_PASSWORD} --plaintext
+group --name=staff --gid=1001
+user --name=staff --uid=1001 --gid=1001 --gecos="Staff" --groups=svk-staff --password=${STAFF_PASSWORD} --plaintext
 rootpw --lock
 firstboot --disable
 %include /usr/share/anaconda/post-scripts/svk-role-staff.ks
