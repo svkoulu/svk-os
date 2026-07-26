@@ -87,7 +87,7 @@ the image. One ISO becomes reusable across sites/accounts without a rebuild.
 >    fallback route) or give it its own handling. Do not silently fix one and leave
 >    the other.
 > 3. **This task and the single-image collapse
->    (`20260726-1957-single-image-collapse.md`) now overlap on the staff password.**
+>    (`../done/20260726-1957-single-image-collapse.md`) now overlap on the staff password.**
 >    The collapse lists "replace the `stafff` placeholder (`:244`)" as in-scope for
 >    itself, on the grounds that with the boundary moving from machine-scoped to
 >    account-scoped, a real staff password becomes load-bearing rather than

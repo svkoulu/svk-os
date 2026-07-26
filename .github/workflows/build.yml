@@ -1,4 +1,4 @@
-# Builds, signs and publishes the four fleet images to GHCR, on two channels.
+# Builds, signs and publishes the two fleet images to GHCR, on two channels.
 #
 # Why weekly: these are CUSTOM bootc images, so they do NOT inherit upstream updates
 # automatically. The scheduled rebuild is how new kernels and security fixes reach
@@ -8,8 +8,9 @@
 # Channels (see .github/workflows/build-images.yml for the fan-out):
 #   - git tag `N`  -> stable   (:stable, :stable-N, :stable-N-DATE)  — the fleet tracks :stable
 #   - push to main -> testing  (:testing, :latest, :testing-DATE)    — dev/test
-#   - weekly cron  -> BOTH: stable rebuilt from the latest git tag (security, no new
-#                    code) + testing rebuilt from main.
+#   - weekly cron  -> STABLE ONLY: rebuilt from the latest git tag (security fixes, no
+#                    unreleased code). testing is rebuilt by every push to main, which
+#                    is when it's actually being worked on — a cron copy adds nothing.
 #   - dispatch     -> both | stable | testing (input)
 # This `setup` job decides which channel(s) to build and their refs; the two calls
 # below run the reusable workflow accordingly.
@@ -80,7 +81,10 @@ jobs:
               fi
               ;;
             schedule)
-              do_testing=true; want_stable
+              # Stable only. The cron exists to get new kernels/security fixes to the
+              # FLEET; testing already rebuilds on every push to main, which is when
+              # it is actually being worked on.
+              want_stable
               ;;
             workflow_dispatch)
               case "$DISPATCH_CH" in

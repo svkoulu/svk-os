@@ -1,22 +1,25 @@
 #!/usr/bin/env bash
-# build-iso.sh — build one svk desktop ISO with Titanoboa (container-native ISO
+# build-iso.sh — build THE svk installer ISO with Titanoboa (container-native ISO
 # contract: https://github.com/ondrejbudai/bootc-isos).
 #
-#   Usage: iso/build-iso.sh <flavor> [repo] [channel]
-#     flavor  : student | staff
+#   Usage: iso/build-iso.sh [repo] [channel]
 #     repo    : ghcr (default) | local
 #     channel : stable (default) | testing — only meaningful for repo=ghcr
 #
+# ONE ISO for the whole fleet: it bakes both role kickstarts and the operator picks
+# lab or staff from the GRUB menu at boot (see iso/installer/build.sh). There is no
+# flavor argument any more — svk-student and svk-staff collapsed into svk-os.
+#
 # What it does:
-#   1. Gets the svk-<flavor> image into root's podman storage (Titanoboa/the
-#      installer build need root podman for loop devices + privileged mounts).
+#   1. Gets the svk-os image into root's podman storage (Titanoboa/the installer
+#      build need root podman for loop devices + privileged mounts).
 #   2. Builds a throwaway "installer image" (iso/installer/) FROM that image:
-#      Anaconda + the offline flatpak bake + live-boot support + iso.yaml. Never
-#      pushed anywhere — it only exists to feed Titanoboa.
+#      Anaconda + both kickstarts + the offline flatpak bake + live-boot support +
+#      iso.yaml. Never pushed anywhere — it only exists to feed Titanoboa.
 #   3. Runs Titanoboa (pinned commit) against that installer image to squashfs it
 #      into a boot-and-run LiveOS ISO.
-#   4. Copies the resulting ISO to iso/svk-<flavor>-<version>.iso (version from
-#      the target image's image.version label, e.g. 1-20260718).
+#   4. Copies the resulting ISO to iso/svk-os-<version>.iso (version from the
+#      target image's image.version label, e.g. stable-1-20260718).
 #
 # Needs a real host with root podman + AC power (ISO builds are heavy).
 set -euo pipefail
@@ -46,21 +49,19 @@ sudo -v
 SUDO_KEEPALIVE_PID=$!
 trap 'kill "$SUDO_KEEPALIVE_PID" 2>/dev/null || true' EXIT
 
-flavor="${1:?usage: build-iso.sh <student|staff> [ghcr|local] [stable|testing]}"
-repo="${2:-ghcr}"
-channel="${3:-stable}"
-case "$flavor" in student|staff) ;; *) echo "flavor must be student|staff" >&2; exit 1 ;; esac
+repo="${1:-ghcr}"
+channel="${2:-stable}"
 case "$channel" in stable|testing) ;; *) echo "channel must be stable|testing" >&2; exit 1 ;; esac
 
 # The real ref the installed machine should track — used for the kickstart's
 # ostreecontainer/bootc-switch target regardless of what the installer image is
 # built FROM. Even a repo=local test install should end up pointed at a real,
 # fetchable origin (not localhost/..., which wouldn't exist on real hardware).
-IMAGE_REF="${REGISTRY}/${NAMESPACE}/svk-${flavor}:${channel}"
+IMAGE_REF="${REGISTRY}/${NAMESPACE}/svk-os:${channel}"
 
 case "$repo" in
     ghcr)  BASE_IMAGE="$IMAGE_REF" ;;
-    local) BASE_IMAGE="localhost/svk-${flavor}:latest" ;;
+    local) BASE_IMAGE="localhost/svk-os:latest" ;;
     *) echo "repo must be ghcr|local" >&2; exit 1 ;;
 esac
 
@@ -82,8 +83,8 @@ fi
 # installed, not just the rolling channel alias in IMAGE_REF. Same label build-iso
 # step 5 uses to name the ISO file — read once here, reused there.
 IMG_VERSION="$(sudo "$PODMAN" inspect --format '{{index .Config.Labels "org.opencontainers.image.version"}}' "$BASE_IMAGE" 2>/dev/null || true)"
-# BASE_IMAGE's own commit (stamped by Containerfile.{staff,student}'s GIT_SHA
-# build-arg) — the source commit the PACKAGED IMAGE was built from. Reported
+# BASE_IMAGE's own commit (stamped by Containerfile.os's GIT_SHA build-arg) —
+# the source commit the PACKAGED IMAGE was built from. Reported
 # alongside ISO_GIT_SHA below since the two can legitimately differ (an ISO can be
 # rebuilt with newer iso/ scripts against an older, already-published image).
 IMG_GIT_SHA="$(sudo "$PODMAN" inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$BASE_IMAGE" 2>/dev/null || true)"
@@ -96,12 +97,16 @@ ISO_GIT_SHA="$(git -C "$REPO_ROOT" rev-parse HEAD 2>/dev/null || true)"
 # passphrase is minted per-install in the kickstart's %pre (iso/installer/build.sh),
 # unique per machine and wiped at first boot — so no shared secret is baked into the
 # ISO and none is printed/saved by this build.
-INSTALLER_IMAGE="localhost/svk-${flavor}-installer:latest"
+#
+# STAFF_PASSWORD: interim placeholder for the baked `staff` login, overridable per
+# build (the kickstart expires it at first login either way). See the note in
+# iso/installer/build.sh; the real fix is the USB provisioning config.
+INSTALLER_IMAGE="localhost/svk-os-installer:latest"
 sudo "$PODMAN" build \
     --cap-add sys_admin --security-opt label=disable \
     --build-arg BASE_IMAGE="$BASE_IMAGE" \
-    --build-arg FLAVOR="$flavor" \
     --build-arg IMAGE_REF="$IMAGE_REF" \
+    --build-arg STAFF_PASSWORD="${STAFF_PASSWORD:-}" \
     --build-arg VERSION="$IMG_VERSION" \
     --build-arg ISO_GIT_SHA="$ISO_GIT_SHA" \
     -t "$INSTALLER_IMAGE" \
@@ -109,7 +114,7 @@ sudo "$PODMAN" build \
     "$REPO_ROOT"
 
 # --- 3. Fetch Titanoboa (pinned) ------------------------------------------------
-BUILD_DIR="${REPO_ROOT}/iso/.build/${flavor}"
+BUILD_DIR="${REPO_ROOT}/iso/.build"
 if [ ! -f "${BUILD_DIR}/main.sh" ]; then
     echo "Fetching Titanoboa (${TITANOBOA_REF})..."
     rm -rf "$BUILD_DIR"
@@ -151,7 +156,7 @@ iso_path="$(env TITANOBOA_CTR_IMAGE="$INSTALLER_IMAGE" PODMAN="$PODMAN" ./main.s
 # all report one matching version. Local dev images may carry none -> fall back to date.
 img_ver="$IMG_VERSION"
 [ -n "$img_ver" ] || img_ver="$(date +%Y%m%d)"
-out="${REPO_ROOT}/iso/svk-${flavor}-${img_ver}.iso"
+out="${REPO_ROOT}/iso/svk-os-${img_ver}.iso"
 sudo chown "$(id -u):$(id -g)" "$iso_path"
 mv "$iso_path" "$out"
 
@@ -164,7 +169,7 @@ mv "$iso_path" "$out"
 info_file="${out%.iso}.build-info.json"
 cat >"$info_file" <<EOF
 {
-  "flavor": "${flavor}",
+  "roles": ["lab", "staff"],
   "channel": "${channel}",
   "image-ref": "${IMAGE_REF}",
   "image-version": "${IMG_VERSION:-}",
@@ -176,9 +181,9 @@ cat >"$info_file" <<EOF
 EOF
 echo "SUCCESS: ${out}"
 echo
-echo "  Packaged image commit (svk-${flavor}): ${IMG_GIT_SHA:-<none>}"
-echo "  iso/ scripts commit (this build):      ${ISO_GIT_SHA:-<none>}"
-echo "  Build metadata sidecar:                ${info_file}"
+echo "  Packaged image commit (svk-os):   ${IMG_GIT_SHA:-<none>}"
+echo "  iso/ scripts commit (this build): ${ISO_GIT_SHA:-<none>}"
+echo "  Build metadata sidecar:           ${info_file}"
 echo
 echo "  Disk encryption: the LUKS passphrase is generated per-install (nothing secret"
 echo "  in this ISO). Each machine shows its own one-time recovery key on first boot —"

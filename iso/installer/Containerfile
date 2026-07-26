@@ -1,11 +1,12 @@
 # iso/installer/Containerfile — the throwaway "installer image" Titanoboa squashfs's
-# into a live-boot ISO. Built FROM the already-published (or locally-built)
-# svk-<flavor> image; never pushed to GHCR. See iso/installer/build.sh for what it
-# adds: Anaconda + kickstart, the offline flatpak bake, and the live-boot/iso.yaml
-# plumbing the container-native ISO contract expects.
+# into a live-boot ISO. Built FROM the already-published (or locally-built) svk-os
+# image; never pushed to GHCR. See iso/installer/build.sh for what it adds: Anaconda
+# + BOTH role kickstarts (lab / staff, picked from the GRUB menu at boot), the
+# offline flatpak bake, and the live-boot/iso.yaml plumbing the container-native ISO
+# contract expects.
 #
 # Build with: podman build --cap-add sys_admin --security-opt label=disable
-#   --build-arg BASE_IMAGE=<svk-flavor ref> --build-arg FLAVOR=<student|staff>
+#   --build-arg BASE_IMAGE=<svk-os ref>
 #   --build-arg IMAGE_REF=<real ghcr ref the installed system should track>
 #   -f iso/installer/Containerfile <repo root>
 #
@@ -13,8 +14,11 @@
 # live-ISO source only.
 ARG BASE_IMAGE
 FROM ${BASE_IMAGE}
-ARG FLAVOR
 ARG IMAGE_REF
+# Interim placeholder password for the kickstart's baked `staff` login; blank falls
+# back to the default in build.sh. The kickstart expires it at first login either
+# way. Removed entirely once the USB provisioning config generates real accounts.
+ARG STAFF_PASSWORD=""
 # BASE_IMAGE's own org.opencontainers.image.version (e.g. stable-1-20260719),
 # read by iso/build-iso.sh before this build. Blank for a local image with no
 # version label. Used only to name the GRUB boot-menu entry.
@@ -32,7 +36,7 @@ ARG ISO_GIT_SHA=""
 COPY flatpaks/ /tmp/flatpaks/
 COPY iso/installer/build.sh /tmp/build.sh
 RUN --mount=type=cache,dst=/var/cache/libdnf5 \
-    FLAVOR="${FLAVOR}" IMAGE_REF="${IMAGE_REF}" VERSION="${VERSION}" \
-    ISO_GIT_SHA="${ISO_GIT_SHA}" \
+    IMAGE_REF="${IMAGE_REF}" VERSION="${VERSION}" \
+    STAFF_PASSWORD="${STAFF_PASSWORD}" ISO_GIT_SHA="${ISO_GIT_SHA}" \
     bash /tmp/build.sh \
     && rm -rf /tmp/build.sh /tmp/flatpaks

@@ -1,0 +1,13 @@
+# Default dconf profile — used by every account that does NOT set DCONF_PROFILE.
+# The user's writable db sits on top of the read-only system `local` db, so
+# fleet-wide DEFAULTS in db/local.d apply while the user can still change
+# anything that isn't explicitly locked. This is what `admin` and staff accounts
+# get.
+#
+# The kiosk account (opilas) gets the SIBLING profile in this directory instead —
+# see ./kiosk. dconf picks the profile from $DCONF_PROFILE, which is set per-user
+# via ~/.config/environment.d/ (planted by the lab kickstart), NOT by this file:
+# a single image serves both lab machines and staff laptops, so the lockdown has
+# to be account-scoped, never machine-scoped.
+user-db:user
+system-db:local

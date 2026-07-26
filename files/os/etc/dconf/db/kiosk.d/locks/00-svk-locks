@@ -1,0 +1,13 @@
+# Locks: keys listed here CANNOT be changed by the student, no matter what the
+# user db says. One key path per line.
+#
+# Locks bind the PROFILE that reads this db, so they apply to opilas (profile
+# `kiosk`) and not to staff/admin (profile `user`) on the same machine.
+/org/gnome/desktop/lockdown/disable-command-line
+/org/gnome/desktop/lockdown/disable-user-switching
+/org/gnome/desktop/lockdown/disable-lock-screen
+/org/gnome/software/allow-updates
+/org/gnome/software/download-updates
+/org/gnome/desktop/media-handling/autorun-never
+/org/gnome/settings-daemon/plugins/color/night-light-enabled
+/org/gnome/desktop/interface/color-scheme

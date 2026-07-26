@@ -240,6 +240,6 @@ and that is not a gap that can be closed on svk's side.
   task provides. Preemptive backup-key staging is *more* valuable while
   svk-check does not exist yet, because it moves the wait to a time when nothing
   is on fire.
-- `20260726-1957-single-image-collapse.md` — if the image count drops, item 4's
+- `../done/20260726-1957-single-image-collapse.md` — if the image count drops, item 4's
   Renovate surface shrinks and the "not adopted" verdict on `image-versions.yml`
   gets stronger still.

@@ -5,10 +5,6 @@
 registry := "ghcr.io"
 namespace := "svkoulu"
 podman := env("PODMAN", "podman")
-# Base image the derived (student/staff) builds FROM. Defaults to a locally-built
-# base; override to build against the pushed one:
-#   just build-staff base_image=ghcr.io/svkoulu/svk-base:latest
-local_base := "localhost/svk-base:latest"
 # Local build version = local-<date>, e.g. local-20260718 (the `local` channel).
 # Stamped into os-release, svk-os/image-info.json + the image.version label so a local
 # dev build is clearly not a CI stable/testing image. CI computes stable-/testing-<date>.
@@ -24,40 +20,27 @@ default:
 
 # ── Build ───────────────────────────────────────────────────────────────────
 
-# Build svk-base (every desktop image builds FROM it).
+# Build svk-os — THE desktop image (lab machines and staff laptops both run it).
 [group('build')]
-build-base:
-    {{ podman }} build -f Containerfile.base --build-arg VERSION={{ version }} --build-arg GIT_SHA={{ git_sha }} -t svk-base .
+build-os:
+    {{ podman }} build -f Containerfile.os --build-arg VERSION={{ version }} --build-arg GIT_SHA={{ git_sha }} -t svk-os .
 
-# Build svk-staff (needs svk-base built first, or pass base_image=<ghcr ref>).
-[group('build')]
-build-staff base_image=local_base:
-    {{ podman }} build -f Containerfile.staff --build-arg BASE_IMAGE={{ base_image }} --build-arg VERSION={{ version }} --build-arg GIT_SHA={{ git_sha }} -t svk-staff .
-
-# Build svk-student (needs svk-base built first, or pass base_image=<ghcr ref>).
-[group('build')]
-build-student base_image=local_base:
-    {{ podman }} build -f Containerfile.student --build-arg BASE_IMAGE={{ base_image }} --build-arg VERSION={{ version }} --build-arg GIT_SHA={{ git_sha }} -t svk-student .
-
-# Build the uCore server image (independent of svk-base).
+# Build the uCore server image (independent of svk-os).
 [group('build')]
 build-server:
     {{ podman }} build -f Containerfile.server --build-arg VERSION={{ version }} --build-arg GIT_SHA={{ git_sha }} -t svk-server .
 
-# Build base + both desktops, in dependency order.
+# Build both images (they're independent — no ordering needed).
 [group('build')]
-build-desktops: build-base build-staff build-student
+build-all: build-os build-server
 
-# Build all four images.
+# Build THE installer ISO with Titanoboa. One ISO for the whole fleet: the role
+# (lab / staff) is picked from the GRUB menu at boot, not chosen here.
+# repo=local|ghcr  channel=stable|testing (only meaningful for repo=ghcr; stable
+# needs a cut git tag). Needs a real host with root podman + AC power (heavy).
 [group('build')]
-build-all: build-desktops build-server
-
-# Build an installer ISO with Titanoboa. flavor=student|staff  repo=local|ghcr
-# channel=stable|testing (only meaningful for repo=ghcr; stable needs a cut git tag).
-# Needs a real host with root podman + AC power (heavy). NOT yet validated.
-[group('build')]
-iso flavor="student" repo="local" channel="stable":
-    iso/build-iso.sh {{ flavor }} {{ repo }} {{ channel }}
+iso repo="local" channel="stable":
+    iso/build-iso.sh {{ repo }} {{ channel }}
 
 # Boot the newest locally-built installer ISO in a throwaway VM to test the installer
 # end-to-end (install -> reboot -> first boot). Uses the qemux/qemu container, so it
@@ -65,13 +48,13 @@ iso flavor="student" repo="local" channel="stable":
 # emulated TPM 2.0, so the full LUKS + TPM auto-unlock path is exercised (install-time
 # %post enrollment, then auto-unlock on reboot with no passphrase prompt). Opens the
 # web console (localhost:8006) and installs to an ephemeral disk that's discarded on
-# exit. flavor=student|staff.
+# exit. Pick the role (lab / staff) in the guest's GRUB menu.
 [group('build')]
-run-iso flavor="student":
+run-iso:
     #!/usr/bin/env bash
     set -euo pipefail
-    iso="$(ls -t iso/svk-{{ flavor }}-*.iso 2>/dev/null | head -1 || true)"
-    [ -n "$iso" ] || { echo "No iso/svk-{{ flavor }}-*.iso found — run 'just iso {{ flavor }} local' first."; exit 1; }
+    iso="$(ls -t iso/svk-os-*.iso 2>/dev/null | head -1 || true)"
+    [ -n "$iso" ] || { echo "No iso/svk-os-*.iso found — run 'just iso local' first."; exit 1; }
     [ -e /dev/kvm ] || { echo "No /dev/kvm — this VM runner needs KVM."; exit 1; }
     # Pick a free host port for the web console.
     port=8006
@@ -99,7 +82,7 @@ cosign-keygen:
     echo "Done. Commit cosign.pub; add cosign.key -> COSIGN_PRIVATE_KEY secret."
 
 # Generate the server's outbound SSH key into secrets/ (idempotent). Its .pub must
-# be the svk-server line in files/base/etc/ssh/authorized_keys.d/admin.
+# be the svk-server line in files/os/etc/ssh/authorized_keys.d/admin.
 [group('setup')]
 bootstrap-secrets:
     #!/usr/bin/env bash
@@ -107,22 +90,22 @@ bootstrap-secrets:
     mkdir -p secrets
     if [ ! -f secrets/id_ed25519 ]; then
         ssh-keygen -t ed25519 -C svk-server -N '' -f secrets/id_ed25519
-        echo ">> Put secrets/id_ed25519.pub as the svk-server line in files/base/etc/ssh/authorized_keys.d/admin"
+        echo ">> Put secrets/id_ed25519.pub as the svk-server line in files/os/etc/ssh/authorized_keys.d/admin"
     else
         echo "secrets/id_ed25519 already exists."
     fi
     [ -f secrets/tailscale-authkey ] || echo ">> TODO: create secrets/tailscale-authkey (server pre-auth key) — see secrets/README.md"
 
-# Copy the student Wi-Fi profile template to its real (gitignored) path to fill in.
+# Copy the lab Wi-Fi profile template to its real (gitignored) path to fill in.
 [group('setup')]
 wifi-profile:
     #!/usr/bin/env bash
     set -euo pipefail
-    d=files/student/etc/NetworkManager/system-connections
+    d=files/os/etc/NetworkManager/system-connections
     real="$d/svk-student-wifi.nmconnection"
     [ -f "$real" ] && { echo "$real already exists."; exit 0; }
     cp "$real.example" "$real"
-    echo ">> Created $real (gitignored). Fill in SSID/PSK, then build svk-student."
+    echo ">> Created $real (gitignored). Fill in SSID/PSK, then build svk-os."
 
 # Compile server.bu (+ secrets/) into server.ign for the uCore install (gitignored).
 [group('setup')]
@@ -143,12 +126,12 @@ placeholders:
 # Shellcheck the build scripts.
 [group('utility')]
 lint:
-    shellcheck build/*.sh build.*.sh iso/*.sh
+    shellcheck build/*.sh build.*.sh iso/*.sh iso/installer/build.sh
 
 # Remove locally-built svk images.
 [group('utility')]
 clean:
-    -{{ podman }} rmi svk-base svk-student svk-staff svk-server
+    -{{ podman }} rmi svk-os svk-server
 
 # Check Justfile formatting.
 [group('utility')]

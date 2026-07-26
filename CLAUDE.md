@@ -2,41 +2,46 @@
 
 ## Purpose
 
-Builds and signs **four bootc OCI images** for a small school IT fleet, publishes them to GHCR (`ghcr.io/svkoulu/...`). Machines are provisioned once from an installer ISO, then track their image via automatic `bootc` updates. Because these are custom images, the base is pinned by digest and does **not** inherit upstream updates automatically — a weekly CI rebuild (+ Renovate digest bumps) is what pulls in new kernels/security fixes. A silently broken pipeline means the fleet silently stops getting updates; that risk drives most of the design (`bootc container lint --fatal-warnings` as final layer, `fail-fast: false`, notify-on-failure).
+Builds and signs **two bootc OCI images** for a small school IT fleet, publishes them to GHCR (`ghcr.io/svkoulu/...`). Machines are provisioned once from an installer ISO, then track their image via automatic `bootc` updates. Because these are custom images, the base is pinned by digest and does **not** inherit upstream updates automatically — a weekly CI rebuild (+ Renovate digest bumps) is what pulls in new kernels/security fixes. A silently broken pipeline means the fleet silently stops getting updates; that risk drives most of the design (`bootc container lint --fatal-warnings` as final layer, `fail-fast: false`, notify-on-failure).
 
 ## Image hierarchy
 
 ```
 quay.io/fedora-ostree-desktops/silverblue   (raw Fedora Silverblue, pinned by DIGEST)
-  └── svk-base       # Tailscale, mDNS, admin SSH, CLI tools, desktop defaults,
-        │              power switching, certs, fwupd, ghcr mirror, cosign policy
-        ├── svk-student   # locked kiosk: autologin (opilas) + home reset + dconf/polkit lockdown
-        └── svk-staff     # normal desktop, no kiosk lockdown; system-scope flatpaks only (no gnome-software, no terminal/SSH)
+  └── svk-os         # THE desktop image — every lab machine AND staff laptop.
+                     # Tailscale, mDNS, admin SSH, CLI tools, desktop defaults, power
+                     # switching, certs, fwupd, ghcr mirror, cosign policy, plus the
+                     # kiosk lockdown (dconf `kiosk` db, polkit, home reset).
 
 ghcr.io/ublue-os/ucore:stable
   └── svk-server     # pull-through registry cache + hostname dispenser + curated Flathub
                      # mirror + AdGuard Home DNS (independent, provisioned via Ignition/Butane, not bootc switch)
 ```
 
-Rebuilt (2026-07) the **modular way**: `svk-base` is raw Silverblue + svk's own config, **not** `FROM ghcr.io/ublue-os/bluefin`. Raw `Containerfile`s (ublue `image-template` lineage), not BlueBuild — this is what lets a single workflow build both the Silverblue desktops and the uCore server. See `tasks/todo/…-modular-base-rebuild-*` for the rebuild rationale and decisions.
+**One image, no build-time flavors** (2026-07-27, `tasks/done/…-single-image-collapse.md`). `svk-base`/`svk-student`/`svk-staff` collapsed into `svk-os`. The rule that makes it safe: **the lockdown is scoped to the account, and the installer decides which accounts exist** — a lab machine gets `opilas` + `admin`, a staff laptop gets `staff` + `admin`. Everything kiosk-shaped gates on the `opilas` account existing (polkit `subject.user == "opilas"`, `ExecCondition=getent passwd opilas`), so it ships everywhere and is inert where that account was never created. Two consequences to keep in mind when changing things:
 
-The desktop **apps** (Firefox, LibreOffice, VLC, GIMP, video tools) are **Flatpaks baked into the installer ISO** by Titanoboa — not installed at build time, and not at first boot. First boot is fully offline; the apps live in system scope (`/var/lib/flatpak`), so a student home-reset never loses them. Ongoing flatpak updates come from the server's LAN Flathub mirror.
+- **Never make kiosk behaviour machine-wide.** `/etc/dconf/profile/user` applies to every account, which is why the lockdown lives in a separate `kiosk` dconf db selected per-account via `DCONF_PROFILE` in `environment.d`. Same reasoning for GDM autologin (kickstart, not image) and the two kiosk units (`ExecCondition`).
+- **The boundary is "this account cannot do X", not "this machine cannot".** App restrictions are group ownership + mode `0750` (`wheel` = the five admin apps, `svk-staff` = gnome-software), with per-account NoDisplay stubs prepended to `XDG_DATA_DIRS` to hide the icons. That makes the staff account's password load-bearing.
+
+Rebuilt (2026-07) the **modular way**: raw Silverblue + svk's own config, **not** `FROM ghcr.io/ublue-os/bluefin`. Raw `Containerfile`s (ublue `image-template` lineage), not BlueBuild — this is what lets a single workflow build both the Silverblue desktop and the uCore server. See `tasks/todo/…-modular-base-rebuild-*` for the rebuild rationale and decisions.
+
+The desktop **apps** (Firefox, LibreOffice, VLC, GIMP, Inkscape, video tools) are **Flatpaks baked into the installer ISO** by Titanoboa — not installed at build time, and not at first boot. First boot is fully offline; the apps live in system scope (`/var/lib/flatpak`), so a student home-reset never loses them. Ongoing flatpak updates come from the server's LAN Flathub mirror. Teachers can add more at runtime — a narrow polkit grant lets the `svk-staff` group do **system-scope** flatpak installs (user-scope would land somewhere `opilas` can't see), which is also why `opilas` gets a denylist rather than an allowlist.
 
 ## Directory structure
 
 ```
-Containerfile.{base,student,staff,server}   # one manifest per image
-build/                                       # svk-base's build scripts, run in order:
+Containerfile.{os,server}                    # one manifest per image
+build/                                       # svk-os's build scripts, run in order:
   00-image-info.sh                           #   branding -> stamps os-release + svk-os/image-info.json (via the shared stamper)
-  10-packages.sh                             #   dnf5 installs (tailscale repo, CLI, mDNS); excludes RPM Firefox
-  20-services.sh                             #   systemctl enable (sshd, avahi, tailscale, power, hostname)
+  10-packages.sh                             #   dnf5 removals (RPM Firefox, gnome-tour, malcontent-control) + installs
+  20-services.sh                             #   systemctl enable (sshd, avahi, tailscale, power, hostname, kiosk units)
   30-users.sh                                #   admin account (sysusers.d) + sudoers + ssh perms
-  40-desktop.sh                              #   dconf, app-restriction chmods, CA trust
+  40-desktop.sh                              #   dconf dbs, the per-account app matrix, hidden-launcher sets, CA trust
   clean-stage.sh / copr-helpers.sh           #   build-artifact cleanup / COPR helpers
-build.{student,staff,server}.sh              # per-image scripts for the derived + server images
-files/{base,student,staff,server}/           # static trees COPY'd to image "/"
-flatpaks/{common,student,staff}.list         # flatpak sets baked into the ISOs (per flavor)
-iso/                                         # Titanoboa ISO pipeline (build-iso.sh, hook-anaconda.sh)
+build.server.sh                              # the server image's build script
+files/{os,server}/                           # static trees COPY'd to image "/"
+flatpaks/common.list                         # the flatpak set baked into the ISO (+ a never-add list)
+iso/                                         # Titanoboa ISO pipeline (build-iso.sh, installer/)
 custom/                                      # ujust recipes shipped into the image
 server.bu                                    # Butane for the uCore server's first install
 cosign.{pub,key}                             # image-signing keypair (.key gitignored)
@@ -45,33 +50,31 @@ archived/                                    # the previous FROM-bluefin impleme
 Justfile                                     # local build + setup commands (CI does NOT use it)
 .github/actions/build-image/                 # shared build+sign+push composite action
 .github/workflows/build.yml                  # router: picks channel(s) per event (git tag/main/cron/dispatch)
-.github/workflows/build-images.yml           # reusable: builds all four for one channel from one ref
-.github/workflows/iso.yml                    # manual: student/staff installer ISOs (Titanoboa)
+.github/workflows/build-images.yml           # reusable: builds both images for one channel from one ref
+.github/workflows/iso.yml                    # the installer ISO (Titanoboa) — one ISO, both roles
 ```
 
-`Containerfile.base` is **multi-stage**: a `scratch` `ctx` stage gathers `build/` + `custom/`, then the final stage is Silverblue-pinned-by-digest; build logic runs via `RUN --mount=type=bind,from=ctx …` calling each `build/NN-*.sh`, then `clean-stage.sh`, then `bootc container lint --fatal-warnings`. The **derived** manifests (`Containerfile.{student,staff}`) stay thin: `FROM ${BASE_IMAGE}` → `COPY files/X/` → `RUN build.X.sh` → lint. Keep base's install/config logic in the numbered `build/` scripts, and each derived image's logic in its `build.X.sh` — not in the Containerfile.
+`Containerfile.os` is **multi-stage**: a `scratch` `ctx` stage gathers `build/` + `custom/`, then the final stage is Silverblue-pinned-by-digest; build logic runs via `RUN --mount=type=bind,from=ctx …` calling each `build/NN-*.sh`, then `clean-stage.sh`, then `bootc container lint --fatal-warnings`. Keep install/config logic in the numbered `build/` scripts, not in the Containerfile.
 
 ## Build strategy
 
-- **Layering**: `svk-base` is built and pushed first; `svk-student`/`svk-staff` build `FROM ${BASE_IMAGE}` — in CI the exact svk-base built that run (`base_from`/immutable tag), locally `localhost/svk-base` (overridable via `--build-arg BASE_IMAGE=…`). `svk-server` is independent (uCore).
-- **Local build order**: base → (staff, student); server anytime. Use the Justfile:
+- **No layering.** The two images are independent — `svk-os` is raw Silverblue, `svk-server` is uCore — so there is no build order and no `BASE_IMAGE` plumbing anywhere. Use the Justfile:
   ```bash
-  just build-base                 # svk-base first
-  just build-staff                # FROM the local svk-base (or base_image=ghcr.io/svkoulu/svk-base:latest)
-  just build-student
+  just build-os                   # the desktop image
   just build-server               # independent (uCore)
-  just build-all
+  just build-all                  # both
   ```
-- **Packages use `dnf5`**, not `rpm-ostree install` (`dnf5 config-manager setopt keepcache=1 install_weak_deps=0`; `dnf5 install -y`), with `--mount=type=cache` for the dnf cache. On a raw Silverblue base most of the old idempotency guards are unnecessary (the packages aren't already present) — keep a guard only where a package might already ship. To *remove* a Silverblue default, add `dnf5 remove -y <pkg>` (e.g. student strips `gnome-tour` / `malcontent-control`; base excludes the RPM Firefox so only the Flatpak ships).
-- **CI**: `.github/workflows/build.yml` is a thin router — its `setup` job decides which channel(s) to build per event (git tag → stable, push to main → testing, weekly cron → **both**, dispatch → choice) and computes the date + stable ref, then calls the reusable `.github/workflows/build-images.yml` once per channel. The reusable workflow fans out base → derived (`needs: build-base`, built FROM the base built that run) + independent server, via the shared `build-image` composite action. Each desktop job ends in `bootc container lint --fatal-warnings`; server uses plain `bootc container lint` (a base we don't control). `fail-fast: false` so one image's failure doesn't hide the others'.
+- **Packages use `dnf5`**, not `rpm-ostree install` (`dnf5 config-manager setopt keepcache=1 install_weak_deps=0`; `dnf5 install -y`), with `--mount=type=cache` for the dnf cache. On a raw Silverblue base most of the old idempotency guards are unnecessary (the packages aren't already present) — keep a guard only where a package might already ship. To *remove* a Silverblue default, add it to the removal loop at the top of `10-packages.sh` (RPM Firefox so only the Flatpak ships, plus `gnome-tour` / `malcontent-control`; the malcontent **library** stays, held in reserve for per-user app filtering).
+- **CI**: `.github/workflows/build.yml` is a thin router — its `setup` job decides which channel(s) to build per event (git tag → stable, push to main → testing, weekly cron → **stable only**, dispatch → choice) and computes the date + stable ref, then calls the reusable `.github/workflows/build-images.yml` once per channel. That workflow is a flat 2-entry matrix (`svk-os`, `svk-server`) over the shared `build-image` composite action. `svk-os` ends in `bootc container lint --fatal-warnings`; server uses plain `bootc container lint` (a base we don't control). `fail-fast: false` so one image's failure doesn't hide the other's. The cron builds stable only because testing already rebuilds on every push to main.
 - **Versioning / channels** (ublue-style): two channels, each a rolling tag + immutable dated pins.
   - **stable** (from **git tags**): `:stable` (rolling, all lines), `:stable-<N>` (rolling within release line N), `:stable-<N>-<DATE>` (pinned). **The fleet tracks `:stable`** — or `:stable-<N>` to pin a line.
   - **testing** (from **main**): `:testing`, `:latest` (alias), `:testing-<DATE>` (pinned). Dev/test.
-  - The **weekly cron builds both**: stable **rebuilt from the latest git tag** (security only — no unreleased code reaches the fleet) + testing from main. New features reach stable only when you cut a tag.
-  - One version string — `stable-<N>-<DATE>` or `testing-<DATE>` (e.g. `stable-1-20260718`) — flows into the image tag, os-release `IMAGE_VERSION`, the `org.opencontainers.image.version` label, `/usr/share/svk-os/image-info.json`, and the ISO filename. `channel`/`major`/`date` are computed once in `setup` and passed down so base + derived agree; the composite action assembles the tags. os-release + the JSON are stamped by the shared `files/base/usr/libexec/svk/stamp-os-release` (shipped in the base, re-run by each derived image so student/staff report their own identity). Fedora's version stays visible via Silverblue's untouched `VERSION_ID`. The JSON lives under `svk-os/` (svk's own metadata; **not** the ublue path) and nothing in the update path reads it.
+  - The **weekly cron builds stable only**, **rebuilt from the latest git tag** (security only — no unreleased code reaches the fleet). New features reach stable only when you cut a tag. testing is not on the cron: every push to main already rebuilds it.
+  - One version string — `stable-<N>-<DATE>` or `testing-<DATE>` (e.g. `stable-1-20260718`) — flows into the image tag, os-release `IMAGE_VERSION`, the `org.opencontainers.image.version` label, `/usr/share/svk-os/image-info.json`, and the ISO filename. `channel`/`major`/`date` are computed once in `setup` and passed down so both images agree; the composite action assembles the tags. os-release + the JSON are stamped by `files/os/usr/libexec/svk/stamp-os-release`, which also ships in the image at `/usr/libexec/svk/`. Fedora's version stays visible via Silverblue's untouched `VERSION_ID`. The JSON lives under `svk-os/` (svk's own metadata; **not** the ublue path) and nothing in the update path reads it.
 - **Signing** stays **bespoke and keyed** (do not switch to keyless): every image is cosign-signed (`COSIGN_PRIVATE_KEY` repo secret; cosign **v2.5.3** pinned), `cosign.pub` is baked into every image, and machines enforce it via `/etc/containers/policy.json` + `registries.d` (the `sha256-<digest>.sig` attachment scheme). A keyless signature would be invisible to this key-based policy and make the fleet reject updates — the #1 project risk.
-- **ISOs**: built with **Titanoboa** (Anaconda), which pre-bakes the per-flavor flatpak set for offline first boot, then `bootc switch`es the origin to the signed registry ref for auto-updates. This replaced the old plain `bootc-image-builder` ISO path. Secure Boot key enrollment is intentionally skipped (no custom kmods on the raw-Silverblue base).
+- **ISOs**: **one ISO for the whole fleet**, built with **Titanoboa** (Anaconda). It pre-bakes the flatpak set for offline first boot, then `bootc switch`es the origin to the signed registry ref for auto-updates. It carries **both role kickstarts** (`svk-lab.ks` / `svk-staff.ks`) as two automated GRUB entries — that menu choice is the only thing that distinguishes a lab machine from a staff laptop, and it runs under `inst.cmdline` so a kickstart gap aborts visibly instead of parking on a prompt. Secure Boot key enrollment is intentionally skipped (no custom kmods on the raw-Silverblue base).
 - **Server provisioning is different**: no ISO/`bootc switch` — compile `server.bu` (Butane) with `secrets/` inlined via `--files-dir .` (`just server-ign`), then install via Ignition/`coreos-installer`.
-- **Rebuild scope discipline**: keep build scripts idempotent, avoid build-time network dependencies that aren't the registry itself, and remember flatpaks are an **ISO-install** artifact now (baked by Titanoboa), not an image or first-boot artifact.
+- **Rebuild scope discipline**: keep build scripts idempotent, avoid build-time network dependencies that aren't the registry itself, and remember flatpaks are an **ISO-install** artifact (baked by Titanoboa), not an image or first-boot artifact.
+- **Role config belongs to the installer, not the image.** Anything that differs between a lab machine and a staff laptop — the accounts, GDM autologin, `DCONF_PROFILE`, the hidden-launcher set — is written by the kickstart's role `%post` (`iso/installer/build.sh`). Anything that differs per *site* — Tailscale enrolment, DNS profile, Wi-Fi, the staff password — is the USB provisioning config's job (`tasks/todo/20260719-0110-usb-provisioning-config.md`), and ships as a fleet-wide default in the meantime. If you find yourself adding a build-time conditional to make one machine behave differently, it belongs in one of those two places instead.
 
 See `README.md` for the operational overview and `TODO.md` for the one-time human setup checklist. The `archived/README.md` still documents the runtime networking / Tailscale / mirror / DNS design (only its *build* instructions are superseded).

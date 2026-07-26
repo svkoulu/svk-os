@@ -15,7 +15,7 @@ proving is tracked there.
 The **Open questions** section below is also closed. Its one item — should
 `gnome-software` be excluded from staff to shut the `--user` flatpak-install
 avenue — was answered the *other* way by
-`../todo/20260726-1957-single-image-collapse.md`: staff get `gnome-software` by
+`../done/20260726-1957-single-image-collapse.md`: staff get `gnome-software` by
 design, gated by group membership rather than removed, with a narrow polkit grant
 for system-scope installs so teachers can install software students can actually
 see. Do not re-open it from this file.

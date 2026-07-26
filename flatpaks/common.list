@@ -1,10 +1,50 @@
-# Shared fleet flatpaks — baked into BOTH student and staff ISOs by Titanoboa.
-# Per-flavor extras go in flatpaks/student.list / flatpaks/staff.list.
+# The fleet flatpak set — baked into the installer ISO by Titanoboa (system scope,
+# /var/lib/flatpak) so first boot is fully offline and an opilas home reset never
+# loses an app. One list for one image: flatpaks/{student,staff}.list are gone.
+#
+# Rationale, checked against workstation-ostree-config packages/silverblue.yaml on
+# the f44 branch (the config quay.io/fedora-ostree-desktops/silverblue:44 is built
+# from). Silverblue ships gnome-disk-utility, gnome-software, nautilus, ptyxis,
+# gnome-system-monitor and gnome-control-center, and from common.yaml only unzip.
+# It ships NO PDF viewer, image viewer, archive manager, calculator or text editor —
+# so TextEditor is not a duplicate, it is the only text editor, and without
+# Papers/Loupe/FileRoller/Calculator a student cannot open a PDF, view an image or
+# extract an archive outside the CLI.
+#
+# No terminal flatpak: ptyxis is already in the image as an RPM (Fedora's default
+# terminal since F41 — GTK4 and container-aware for toolbx/distrobox, which is the
+# point on an atomic desktop). It is restricted to wheel, not added here.
+#
+# adw-gtk3 + adw-gtk3-dark are runtimes, not apps: GIMP, Inkscape and Audacity are
+# GTK3 flatpaks and don't pick up the host theme without them. Bluefin ships both
+# for the same reason.
+#
+# NEVER ADD — deliberately blocked, don't "helpfully" put them back:
+#   com.github.tchx84.Flatseal        (sandbox permission editor)
+#   com.mattjakeman.ExtensionManager  (GNOME extension installer)
+#   io.github.flattool.Warehouse      (flatpak manager / mass uninstall)
+#   io.github.kolunmi.Bazaar          (alternative app store)
+#   io.gitlab.adhami3310.Impression   (USB image writer)
+#   page.tesk.Refine                  (GNOME internals tweaker)
+#   com.ranfdev.DistroShelf           (distrobox GUI)
+# These are the Bluefin-list entries svk drops on purpose: each one hands a student
+# (or a teacher-installed-for-a-student) a way around the lockdown or the disk.
+#
+# One app id per line. Fleet-wide additions belong here + a rebuild; a teacher's
+# per-machine install goes through gnome-software and stays on that machine.
 org.mozilla.firefox
+org.gnome.TextEditor
+org.gnome.Calculator
+org.gnome.Papers
+org.gnome.Loupe
+org.gnome.FileRoller
 org.libreoffice.LibreOffice
-org.videolan.VLC
 org.gimp.GIMP
+org.inkscape.Inkscape
+org.audacityteam.Audacity
+org.videolan.VLC
 org.gnome.gitlab.YaLTeR.VideoTrimmer
 org.openshot.OpenShot
 no.mifi.losslesscut
-org.gnome.TextEditor
+org.gtk.Gtk3theme.adw-gtk3
+org.gtk.Gtk3theme.adw-gtk3-dark

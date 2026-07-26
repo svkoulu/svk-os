@@ -1,0 +1,25 @@
+# Resets /home/opilas to /etc/skel. Started (blocking) by GDM PostSession on
+# every logout; can also be run by hand: `systemctl start reset-opilas-home`.
+# Enabled in build/20-services.sh mainly so it's present and startable — the
+# actual trigger is PostSession, not a target dependency.
+[Unit]
+Description=Reset /home/opilas to a pristine /etc/skel
+# Runs at boot too, to create the home before opilas autologs in (bootc doesn't
+# persist a build-time /home). Ordered after /var is mounted and before the
+# display manager.
+After=local-fs.target var-home.mount systemd-sysusers.service
+Before=display-manager.service
+
+[Service]
+Type=oneshot
+# The single image ships to lab machines AND staff laptops, but only the lab
+# kickstart creates opilas. getent exits 2 when the account doesn't exist, and
+# systemd treats a non-zero ExecCondition as "skip this unit" (not "fail"), so a
+# staff laptop just skips it cleanly on every boot. The script guards itself too.
+ExecCondition=/usr/bin/getent passwd opilas
+ExecStart=/usr/bin/reset-opilas-home.sh
+
+[Install]
+# Enabled in build/20-services.sh -> runs every boot; PostSession also starts it
+# on each logout.
+WantedBy=multi-user.target

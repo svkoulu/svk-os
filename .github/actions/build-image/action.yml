@@ -1,8 +1,8 @@
 # Composite action: lint (via the build), build, push and cosign-sign one image.
-# Factored out so all four jobs share ONE copy of the signing logic — a drifted
+# Factored out so every image shares ONE copy of the signing logic — a drifted
 # signing step is exactly the kind of silent breakage this repo is trying to avoid.
 #
-# Channel/tag scheme (channel + major + date come from the caller so base and derived
+# Channel/tag scheme (channel + major + date come from the caller so both images
 # agree on one date):
 #   stable  -> :stable, :stable-<N>, :stable-<N>-<date>   version stable-<N>-<date>
 #   testing -> :testing, :latest,    :testing-<date>      version testing-<date>
@@ -13,7 +13,7 @@ description: Build, push and cosign-sign a bootc image with matching channel/ver
 
 inputs:
   image:
-    description: Image short name (svk-base, svk-student, ...).
+    description: Image short name (svk-os, svk-server).
     required: true
   containerfile:
     description: Path to the Containerfile.
@@ -45,15 +45,8 @@ inputs:
     required: false
     default: ""
   date:
-    description: Build date YYYYMMDD, computed once by the caller so base + derived agree.
+    description: Build date YYYYMMDD, computed once by the caller so both images agree.
     required: true
-  base_from:
-    description: >
-      Base image short name (e.g. svk-base). If set, this image is built FROM that
-      image at the immutable tag produced THIS run (same channel+major+date) — so
-      derived images pick up the base from the same run. Empty for svk-base/svk-server.
-    required: false
-    default: ""
 
 runs:
   using: composite
@@ -75,7 +68,7 @@ runs:
           echo "REPO=${{ inputs.registry }}/${{ inputs.namespace }}/${{ inputs.image }}"
           echo "VERSION=${VERSION}"
           echo "TAGS=${TAGS}"
-          echo "IMMUTABLE=${IMMUTABLE}"        # derived images build FROM base:IMMUTABLE
+          echo "IMMUTABLE=${IMMUTABLE}"        # the dated, pinned tag
         } >> "$GITHUB_ENV"
         # Shared retry wrapper — retries only transient network/registry failures.
         echo "RETRY=${{ github.action_path }}/../../scripts/retry.sh" >> "$GITHUB_ENV"
@@ -99,20 +92,16 @@ runs:
     - name: Pull base image
       shell: bash
       run: |
-        if [ -n "${{ inputs.base_from }}" ]; then
-          BASE_REF="${{ inputs.registry }}/${{ inputs.namespace }}/${{ inputs.base_from }}:${IMMUTABLE}"
-        else
-          # Last FROM in the manifest is the real base (earlier ones are `scratch AS ctx`).
-          BASE_REF="$(awk '$1 == "FROM" { last = $2 } END { print last }' "${{ inputs.containerfile }}")"
-          # name:tag@sha256:... -> name@sha256:... (pull the digest; the tag is decoration)
-          case "${BASE_REF}" in
-            *@sha256:*)
-              name="${BASE_REF%@*}"; digest="${BASE_REF#*@}"
-              case "${name##*/}" in *:*) name="${name%:*}" ;; esac
-              BASE_REF="${name}@${digest}"
-              ;;
-          esac
-        fi
+        # Last FROM in the manifest is the real base (earlier ones are `scratch AS ctx`).
+        BASE_REF="$(awk '$1 == "FROM" { last = $2 } END { print last }' "${{ inputs.containerfile }}")"
+        # name:tag@sha256:... -> name@sha256:... (pull the digest; the tag is decoration)
+        case "${BASE_REF}" in
+          *@sha256:*)
+            name="${BASE_REF%@*}"; digest="${BASE_REF#*@}"
+            case "${name##*/}" in *:*) name="${name%:*}" ;; esac
+            BASE_REF="${name}@${digest}"
+            ;;
+        esac
         echo "Base image: ${BASE_REF}"
         if [ "${BASE_REF}" != "scratch" ]; then
           "${RETRY}" 5 podman pull "${BASE_REF}"
@@ -127,9 +116,6 @@ runs:
       # transient signature — retry.sh will NOT re-run a lint or package failure.
       run: |
         args=(--build-arg "VERSION=${VERSION}" --build-arg "GIT_SHA=${{ github.sha }}")
-        if [ -n "${{ inputs.base_from }}" ]; then
-          args+=(--build-arg "BASE_IMAGE=${{ inputs.registry }}/${{ inputs.namespace }}/${{ inputs.base_from }}:${IMMUTABLE}")
-        fi
         for t in ${TAGS}; do args+=(-t "${REPO}:${t}"); done
         "${RETRY}" 3 podman build -f "${{ inputs.containerfile }}" "${args[@]}" .
 
@@ -155,7 +141,7 @@ runs:
         COSIGN_PASSWORD: ${{ inputs.cosign_password }}
       # Sign by digest: all pushed tags resolve to the same digest, so one
       # signature covers every tag. Machines verify this against cosign.pub
-      # baked into the image (files/base/.../policy.json).
+      # baked into the image (files/os/.../policy.json).
       #
       # cosign needs its own registry credentials here: it uses go-containerregistry's
       # keychain (~/.docker/config.json), which podman login never writes to (podman

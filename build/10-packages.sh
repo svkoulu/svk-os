@@ -1,17 +1,38 @@
 #!/usr/bin/bash
-# 10-packages.sh — package layer for svk-base (dnf5 on a raw Silverblue base).
+# 10-packages.sh — package layer for svk-os (dnf5 on a raw Silverblue base).
 #
 # Unlike the old `FROM bluefin` build, this base is vanilla Fedora Silverblue, so
 # packages we need aren't already present and we add them explicitly. dnf5 install
 # is a no-op for anything already shipped, so no `rpm -q` guards are needed.
 set -euo pipefail
 
-echo "::group:: Exclude RPM Firefox (D3 — svk ships Flatpak Firefox via the ISO)"
+echo "::group:: Remove Silverblue defaults svk doesn't ship"
 # Silverblue ships firefox as an RPM. Remove it (mirrors Bluefin's own exclusion)
 # so only the Flatpak — baked into the Titanoboa ISO — is present. The uBO managed
-# policy in files/base/etc/firefox/policies/ targets the Flatpak and is untouched.
-if rpm -q firefox >/dev/null 2>&1; then
-    dnf5 remove -y firefox firefox-langpacks
+# policy in files/os/etc/firefox/policies/ targets the Flatpak and is untouched.
+#
+# gnome-tour (welcome tour) and malcontent-control (parental-controls GUI) go
+# fleet-wide, not just on kiosks: neither is something any account here should
+# meet, and with a single image there is nowhere to make it conditional anyway.
+#
+# NOTE: `malcontent` the LIBRARY stays installed — a separate package that does
+# NOT come out with the GUI (verified). It is the per-user app-visibility
+# enforcement layer, held in reserve now that teachers can install flatpaks and
+# the installed app set is no longer known at build time.
+#
+# gnome-software is deliberately NOT removed: svk-staff used to strip it, on the
+# grounds that staff had no terminal and no SSH so it was the last self-service
+# install path. Staff now get it by design (restricted to the svk-staff group in
+# build/40-desktop.sh, with a narrow polkit grant for system-scope installs), so
+# that rationale is retired.
+to_remove=()
+for pkg in firefox firefox-langpacks gnome-tour malcontent-control; do
+    if rpm -q "$pkg" >/dev/null 2>&1; then
+        to_remove+=("$pkg")
+    fi
+done
+if [ ${#to_remove[@]} -gt 0 ]; then
+    dnf5 remove -y "${to_remove[@]}"
 fi
 echo "::endgroup::"
 

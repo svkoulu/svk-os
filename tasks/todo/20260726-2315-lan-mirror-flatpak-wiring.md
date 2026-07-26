@@ -65,7 +65,7 @@ and trust is **Flathub's own published key**, never a blob committed to this rep
 ## Where it belongs
 
 Machine-scoped, not flavor-scoped — so `files/base/`, and per the single-image
-collapse (`20260726-1957-single-image-collapse.md`) that is the only tree left
+collapse (`../done/20260726-1957-single-image-collapse.md`) that is the only tree left
 anyway. Mirror URL/hostname is per-site config; check whether it should ride the
 provisioning USB (`20260719-0110-usb-provisioning-config.md`) rather than being
 hardcoded to `svk-server.local:8080` the way the archived script had it.

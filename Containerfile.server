@@ -1,5 +1,5 @@
 # svk-server — the one server. Independent branch of the hierarchy: built
-# FROM uCore, NOT from svk-base (build.yml: build-server `needs: []`).
+# FROM uCore, NOT from svk-os — a completely independent branch of the tree.
 #
 # Its jobs:
 #   1. Run a pull-through registry cache for ghcr.io (Podman quadlet) so the 19
@@ -12,7 +12,7 @@
 FROM ghcr.io/ublue-os/ucore:stable
 
 # Consumed by CI's shared build action (passed to every image). The server is uCore,
-# not svk-base, so it keeps uCore's own os-release; this just accepts the build-arg.
+# not svk-os, so it keeps uCore's own os-release; this just accepts the build-arg.
 ARG VERSION=""
 # Full git commit SHA this image was built from (server keeps uCore's own os-release,
 # so unlike the desktop images this has nowhere else to land — the label is it).

@@ -1,6 +1,6 @@
 # vim: set ft=make :
 # svk-update.just — manual override + status for the scheduled bootc-image and
-# flatpak update units (files/base/etc/systemd/system/{bootc-fetch-apply-updates,
+# flatpak update units (files/os/etc/systemd/system/{bootc-fetch-apply-updates,
 # svk-flatpak-update}.*). See tasks/todo/…-fleet-update-cadence.md.
 
 # Reuses the exact same units/wrapper scripts/logging as the scheduled timer,

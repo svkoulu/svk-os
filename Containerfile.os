@@ -1,0 +1,102 @@
+# svk-os — THE desktop image. One image for every machine in the fleet: lab
+# kiosks and staff laptops both run this, and the installer (not the image)
+# decides which accounts exist on a given machine. The lockdown is scoped to the
+# `opilas` account, so it ships everywhere and is simply inert where that account
+# was never created — see tasks/done/…-single-image-collapse.md.
+#
+# Built the MODULAR way: a raw Fedora Silverblue OSTree base + svk's own config,
+# NOT `FROM ghcr.io/ublue-os/bluefin` (see tasks/todo/…-modular-base-rebuild-*).
+# Because this is a custom image the base is pinned by digest and does NOT inherit
+# upstream updates automatically — the weekly CI rebuild + Renovate digest bumps
+# are what pull in new kernels / security fixes.
+
+# --- ctx: gather build-time-only inputs (scripts, custom/) into a scratch stage
+#     so they're bind-mounted during RUN and never ship as layers. ---
+FROM scratch AS ctx
+COPY build /build
+COPY custom /custom
+
+# --- base: raw Fedora Silverblue, pinned by digest (Renovate keeps it current). ---
+FROM quay.io/fedora-ostree-desktops/silverblue:44@sha256:b21b78d67bdba02aa551bebbb2f67278cb2f72a3c87f43148a25f3dd325bc663
+
+# Image identity — makes bootc / fastfetch report svk, not Fedora.
+ARG IMAGE_NAME="svk-os"
+ARG IMAGE_VENDOR="svkoulu"
+ARG FEDORA_MAJOR_VERSION="44"
+# Build version, e.g. 1-20260718 (git-tag major + date). CI passes it; blank locally.
+ARG VERSION=""
+# Full git commit SHA of the svk repo this image was built from. CI passes
+# github.sha; the Justfile passes `git rev-parse HEAD`; blank for a manual
+# `podman build` with no --build-arg. Distinct from VERSION (channel/date) —
+# this is what lets you go from a running/installed image back to the exact
+# source commit, independent of tagging/release scheme.
+ARG GIT_SHA=""
+
+# OCI metadata — svk build version + Fedora provenance. The base itself is pinned by
+# digest in the FROM line above; these make the versions greppable via `podman inspect`
+# (the ISO build reads image.version to name the ISO after the exact image it bakes).
+LABEL org.opencontainers.image.version="${VERSION}"
+# org.opencontainers.image.revision is the OCI Image Spec's own pre-defined key for
+# "source control revision of the packaged software" — using it (not a svk-invented
+# label) means any OCI-aware tool (podman/skopeo inspect, GitHub, etc.) already knows
+# what it means.
+LABEL org.opencontainers.image.revision="${GIT_SHA}"
+LABEL org.opencontainers.image.base.name="quay.io/fedora-ostree-desktops/silverblue:${FEDORA_MAJOR_VERSION}"
+LABEL fedora.version="${FEDORA_MAJOR_VERSION}"
+
+# svk static config tree -> "/" (ships in the image): ghcr mirror, cosign policy,
+# admin SSH, dconf defaults (fleet-wide + the separate kiosk db), firefox/uBO
+# policy, mDNS, hostname-claim, power, certs, the kiosk units and the polkit
+# account rules.
+#
+# files/os/etc/containers/policy.json: default is `insecureAcceptAnything` so
+# upstream Bluefin/uCore/flathub etc. keep working (they use their own
+# verification / aren't cosign-signed the same way); our OWN namespace
+# (ghcr.io/svkoulu) is pinned to require a cosign signature made with
+# /etc/pki/containers/svk-cosign.pub. Tighten `default` to `reject` later for a
+# fully closed fleet. NOTE: policy.json's parser strictly validates top-level
+# keys, so it can't hold a "//"-style comment key itself (that broke `bootc
+# switch --enforce-container-sigpolicy` with "unknown key: //" during install) —
+# keep any explanatory notes here instead of in the file.
+COPY files/os/ /
+# Our image-signing public key, enforced by /etc/containers/policy.json so machines
+# only accept svk images signed with this repo's key.
+COPY cosign.pub /etc/pki/containers/svk-cosign.pub
+
+# Branding first (stamps svk identity + $VERSION into /usr/lib/os-release).
+RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
+    --mount=type=tmpfs,dst=/boot \
+    --mount=type=tmpfs,dst=/tmp \
+    /ctx/build/00-image-info.sh
+
+# dnf options for the build (persist across the RUN layers below).
+RUN dnf5 config-manager setopt keepcache=1 install_weak_deps=0
+
+# Packages (needs network + the dnf cache).
+RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
+    --mount=type=cache,dst=/var/cache/libdnf5 \
+    --mount=type=tmpfs,dst=/boot \
+    --mount=type=tmpfs,dst=/tmp \
+    /ctx/build/10-packages.sh
+
+# System config: services + mDNS, the admin account, desktop lockdown (no network).
+RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
+    --mount=type=tmpfs,dst=/boot \
+    --mount=type=tmpfs,dst=/tmp \
+    /ctx/build/20-services.sh \
+ && /ctx/build/30-users.sh \
+ && /ctx/build/40-desktop.sh
+
+# Remove build artifacts before linting (Bluefin's clean-stage.sh).
+RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
+    --mount=type=tmpfs,dst=/tmp \
+    --mount=type=tmpfs,dst=/boot \
+    /ctx/build/clean-stage.sh
+
+# /opt -> /var/opt (writeable); keeps the main image strict.
+RUN rm -rf /opt && ln -s /var/opt /opt
+
+CMD ["/sbin/init"]
+
+# Final sanity gate — a broken image fails the build instead of shipping.
+RUN bootc container lint --fatal-warnings

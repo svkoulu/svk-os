@@ -1,0 +1,35 @@
+// Let teachers install Flatpaks SYSTEM-WIDE without sudo.
+//
+// Why system scope and not `--user`: a teacher installs an app *for the students
+// to use*. A --user install lands in ~staff/.local/share/flatpak, which opilas
+// cannot see at all — and on a lab machine the teacher's account isn't even the
+// one the class logs into. System scope (/var/lib/flatpak) is the only scope that
+// reaches the kiosk account, and it is also the scope svk-flatpak-update.timer
+// already keeps patched.
+//
+// Why a rule is needed: org.freedesktop.Flatpak.app-install defaults to
+// auth_admin. Staff accounts are deliberately NOT in wheel (local sudo is
+// admin-only, over SSH — see etc/sudoers.d/10-svk-admin), so without this the
+// install fails with an admin password prompt nobody can answer.
+//
+// Scope is deliberately narrow: app + runtime installs only. NOT modify-repo
+// (adding remotes), NOT override (changing sandbox permissions), NOT
+// app-uninstall of things the fleet shipped. Everything else keeps its default.
+//
+// Consequence, accepted: the installed app set is no longer fully known at build
+// time, so opilas gets a DENYLIST (49-school-lockdown.rules), not an allowlist —
+// a teacher-installed app has to just work. Teachers are trusted. If that ever
+// needs tightening, malcontent's per-user app filter is the tool (the library is
+// kept installed for exactly this).
+//
+// Fleet-wide additions still belong in flatpaks/common.list + a rebuild: an
+// install here lands on ONE machine, not on the other 29 in the lab.
+
+polkit.addRule(function(action, subject) {
+    if (subject.isInGroup("svk-staff")) {
+        if (action.id == "org.freedesktop.Flatpak.app-install" ||
+            action.id == "org.freedesktop.Flatpak.runtime-install") {
+            return polkit.Result.YES;
+        }
+    }
+});

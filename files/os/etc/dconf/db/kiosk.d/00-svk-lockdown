@@ -1,0 +1,40 @@
+# Kiosk defaults, compiled into the binary `kiosk` db by `dconf update` in
+# build/40-desktop.sh. These are DEFAULTS; the matching entries in
+# locks/00-svk-locks make them unchangeable. Add/trim to taste.
+#
+# The `kiosk` db is read ONLY by accounts whose profile is `kiosk` (i.e. opilas —
+# see ../../profile/kiosk), not by every account on the machine. That is the whole
+# reason this layer lives in its own db instead of in local.d: one image serves
+# lab machines and staff laptops, and staff must not inherit the lockdown.
+
+[org/gnome/desktop/lockdown]
+# No arbitrary command execution (Alt-F2), no printing/print-setup escape,
+# no switching users, no saving files to arbitrary locations.
+disable-command-line=true
+disable-user-switching=true
+disable-lock-screen=true
+disable-log-out=false
+
+[org/gnome/desktop/screensaver]
+lock-enabled=false
+
+[org/gnome/software]
+# Students don't install/update software; kiosk apps are baked in.
+allow-updates=false
+download-updates=false
+
+[org/gnome/desktop/notifications]
+show-in-lock-screen=false
+
+[org/gnome/desktop/media-handling]
+# Don't auto-run anything off inserted USB media.
+autorun-never=true
+
+[org/gnome/settings-daemon/plugins/color]
+# Night Light off — one less Quick Settings toggle for students to fiddle with.
+night-light-enabled=false
+
+[org/gnome/desktop/interface]
+# Dark Style off — locked below so the Quick Settings toggle can't flip it;
+# keeps every machine looking the same for over-the-shoulder troubleshooting.
+color-scheme='default'

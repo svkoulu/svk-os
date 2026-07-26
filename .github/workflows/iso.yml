@@ -1,19 +1,21 @@
-# Builds installer ISOs for the two desktop images with Titanoboa.
+# Builds THE installer ISO with Titanoboa.
 #
 # Titanoboa squashfs's a throwaway "installer image" (see iso/build-iso.sh +
 # iso/installer/) into a live-boot ISO; that installer image bakes the offline
-# flatpak set + Anaconda, so first boot needs no network. ISOs are only needed when
-# provisioning new hardware, are slow, and produce large artifacts. Existing machines
-# never need this — they auto-update from the registry.
+# flatpak set + Anaconda + BOTH role kickstarts, so first boot needs no network and
+# one ISO provisions both lab machines and staff laptops (the operator picks the
+# role from the GRUB menu). ISOs are only needed when provisioning new hardware,
+# are slow, and produce large artifacts. Existing machines never need this — they
+# auto-update from the registry.
 #
 # Runs two ways:
 #   - Reusable (workflow_call): build.yml calls this per channel AFTER that channel's
 #     images are pushed, so a push to main (testing) or a git tag (stable) refreshes
-#     the installer ISOs alongside the images — same channel routing as build.yml.
-#     The ISO pulls svk-<flavor>:<channel> from GHCR, so it MUST run after the image
+#     the installer ISO alongside the images — same channel routing as build.yml.
+#     The ISO pulls svk-os:<channel> from GHCR, so it MUST run after the image
 #     build, which is why build.yml chains it with `needs` rather than triggering here.
-#   - Manual (workflow_dispatch): on-demand run from the Actions tab, pick image +
-#     channel (e.g. to rebuild an ISO without republishing the images).
+#   - Manual (workflow_dispatch): on-demand run from the Actions tab, pick the
+#     channel (e.g. to rebuild the ISO without republishing the images).
 name: iso
 
 on:
@@ -23,18 +25,8 @@ on:
         description: stable | testing.
         required: true
         type: string
-      image:
-        description: Which ISO(s) to build.
-        required: false
-        type: string
-        default: both
   workflow_dispatch:
     inputs:
-      image:
-        description: Which ISO(s) to build.
-        type: choice
-        default: both
-        options: [both, svk-student, svk-staff]
       channel:
         description: Which channel to bake (stable needs at least one cut git tag).
         type: choice
@@ -52,36 +44,19 @@ permissions:
 jobs:
   iso:
     runs-on: ubuntu-24.04
-    strategy:
-      fail-fast: false
-      matrix:
-        flavor: [student, staff]
     steps:
-      - name: Should this flavor build?
-        id: gate
-        run: |
-          want='${{ inputs.image }}'
-          if [ "$want" = "both" ] || [ "$want" = "svk-${{ matrix.flavor }}" ]; then
-            echo "run=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "run=false" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Checkout
-        if: steps.gate.outputs.run == 'true'
         uses: actions/checkout@v7
 
       # Titanoboa materializes a full live rootfs + ISO; the default runner's free
       # space isn't enough. Strip preinstalled toolchains first (same fix build.yml
       # ISO jobs used historically).
       - name: Maximize build space
-        if: steps.gate.outputs.run == 'true'
         uses: ublue-os/remove-unwanted-software@cc0becac701cf642c8f0a6613bbdaf5dc36b259e # v9
         with:
           remove-codeql: true
 
       - name: Login to GHCR (root's podman — Titanoboa runs under sudo)
-        if: steps.gate.outputs.run == 'true'
         env:
           REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -90,30 +65,26 @@ jobs:
               -u "${{ github.actor }}" --password-stdin'
 
       # Retried on transient registry/CDN failures only (retry.sh classifies): the ISO
-      # build pulls the flavor image plus the whole flatpak set, so it has a lot of
-      # network surface, but it is also slow — re-running a real failure isn't worth it.
+      # build pulls the image plus the whole flatpak set, so it has a lot of network
+      # surface, but it is also slow — re-running a real failure isn't worth it.
       - name: Build ISO with Titanoboa
-        if: steps.gate.outputs.run == 'true'
         run: |
-          .github/scripts/retry.sh 2 bash iso/build-iso.sh \
-            "${{ matrix.flavor }}" ghcr "${{ inputs.channel }}"
+          .github/scripts/retry.sh 2 bash iso/build-iso.sh ghcr "${{ inputs.channel }}"
 
       - name: Short commit SHA
-        if: steps.gate.outputs.run == 'true'
         id: sha
         run: echo "short=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
 
       # Name the artifact with channel + commit so the downloaded zip is
-      # self-identifying (e.g. svk-staff-testing-a1b2c3d-iso.zip). Upload the ISO
+      # self-identifying (e.g. svk-os-testing-a1b2c3d-iso.zip). Upload the ISO
       # plus its build-info.json provenance sidecar (iso/build-iso.sh). The glob is
       # kept narrow ON PURPOSE — the ISO is a large, sensitive artifact, and nothing
       # else under iso/ (build caches, any local sidecars) should be swept in.
       - name: Upload ISO artifact
-        if: steps.gate.outputs.run == 'true'
         uses: actions/upload-artifact@v7
         with:
-          name: svk-${{ matrix.flavor }}-${{ inputs.channel }}-${{ steps.sha.outputs.short }}-iso
+          name: svk-os-${{ inputs.channel }}-${{ steps.sha.outputs.short }}-iso
           path: |
-            iso/svk-${{ matrix.flavor }}-*.iso
-            iso/svk-${{ matrix.flavor }}-*.build-info.json
+            iso/svk-os-*.iso
+            iso/svk-os-*.build-info.json
           if-no-files-found: error

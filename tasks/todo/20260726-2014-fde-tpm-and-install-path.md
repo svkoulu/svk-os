@@ -93,4 +93,4 @@ planned migration.
 
 Note the `OEMDRV` option for kickstart selection was considered and **rejected** —
 GRUB entries on one ISO were chosen instead (see
-`20260726-1957-single-image-collapse.md`).
+`../done/20260726-1957-single-image-collapse.md`).

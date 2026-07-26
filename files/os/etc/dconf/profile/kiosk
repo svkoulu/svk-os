@@ -1,0 +1,13 @@
+# Kiosk dconf profile — selected per-account with DCONF_PROFILE=kiosk (see
+# ../../skel/.config/environment.d/, planted by the lab kickstart), so it applies
+# to opilas and to nobody else on the same machine.
+#
+# Order matters: dconf reads the databases below in DECREASING priority, so the
+# `kiosk` db (defaults + locks, from db/kiosk.d/) wins over the fleet-wide
+# `local` db (db/local.d/), and both are read-only under the user's writable db.
+# The locks in db/kiosk.d/locks/ therefore bind this profile only — a staff
+# account on the same machine, reading the default `user` profile, never sees
+# them.
+user-db:user
+system-db:kiosk
+system-db:local

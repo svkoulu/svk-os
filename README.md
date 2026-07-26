@@ -1,6 +1,6 @@
 # svk — school bootc image factory
 
-Builds and signs **four bootc OCI images** for a small school IT fleet and
+Builds and signs **two bootc OCI images** for a small school IT fleet and
 publishes them to GHCR (`ghcr.io/svkoulu/...`). Machines are provisioned once from
 an installer ISO, then track their image via automatic `bootc` updates.
 
@@ -16,34 +16,56 @@ New here? Work through [`TODO.md`](TODO.md) for the one-time setup a human must 
 
 ```
 quay.io/fedora-ostree-desktops/silverblue     (raw Fedora Silverblue, pinned by digest)
-  └── svk-base      # Tailscale, mDNS, admin SSH, CLI tools, desktop defaults,
-        │             power switching, certs, fwupd, ghcr mirror, cosign policy
-        ├── svk-student   # locked kiosk: autologin (opilas) + home reset + dconf/polkit lockdown
-        └── svk-staff     # normal desktop; staff install their own --user flatpaks
+  └── svk-os        # THE desktop image — every lab machine and staff laptop.
+                    # Tailscale, mDNS, admin SSH, CLI tools, desktop defaults, power
+                    # switching, certs, fwupd, ghcr mirror, cosign policy, AND the
+                    # kiosk lockdown (autologin target, home reset, dconf/polkit).
 
 ghcr.io/ublue-os/ucore:stable
   └── svk-server    # pull-through registry cache + hostname dispenser + curated
                     # Flathub mirror + AdGuard Home DNS (independent; installed via Ignition)
 ```
 
-The desktop apps (Firefox, LibreOffice, VLC, GIMP, video tools) are **Flatpaks
-baked into the installer ISO** by Titanoboa, so first boot is fully offline and the
-apps live in system scope (a student home-reset never loses them).
+**One image, no flavors.** A lab machine and a staff laptop run the same bytes; the
+**installer** decides which accounts exist (`opilas` + `admin` vs `staff` + `admin`),
+and the lockdown is scoped to the `opilas` **account**, so it ships everywhere and is
+simply inert where that account was never created. The boundary is "this account
+cannot do X", not "this machine cannot do X" — which is why the staff account's
+password is load-bearing. Who can run what:
+
+| app | admin | staff | opilas |
+|---|---|---|---|
+| `gnome-software` | yes | yes | no |
+| `gnome-disks` | yes | no | no |
+| `ptyxis` (Terminal) | yes | no | no |
+| `gnome-system-monitor` | yes | no | no |
+| `gnome-tweaks` | yes | no | no |
+| `firewall-config` | yes | no | no |
+
+Enforced by group ownership + mode `0750` on the binaries (`wheel` for the admin-only
+five, `svk-staff` for gnome-software), with per-account `NoDisplay` stubs prepended to
+`XDG_DATA_DIRS` so the icons disappear too. Staff can install Flatpaks **system-wide**
+(a narrow polkit grant), because an app installed for students to use has to land
+somewhere `opilas` can see.
+
+The desktop apps (Firefox, LibreOffice, VLC, GIMP, Inkscape, video tools) are
+**Flatpaks baked into the installer ISO** by Titanoboa, so first boot is fully offline
+and the apps live in system scope (a student home-reset never loses them).
 
 ## Repo layout
 
 ```
-Containerfile.{base,student,staff,server}   # one manifest per image
-build/                                       # svk-base's numbered build scripts (dnf5, services, users, desktop)
-build.{student,staff,server}.sh              # per-image build scripts
-files/{base,student,staff,server}/           # static trees COPY'd to image "/"
-flatpaks/{common,student,staff}.list         # flatpak sets baked into the ISOs
+Containerfile.{os,server}                    # one manifest per image
+build/                                       # svk-os's numbered build scripts (dnf5, services, users, desktop)
+build.server.sh                              # the server image's build script
+files/{os,server}/                           # static trees COPY'd to image "/"
+flatpaks/common.list                         # the flatpak set baked into the ISO
 iso/                                         # Titanoboa ISO pipeline (build-iso.sh, installer/)
 server.bu                                    # Butane for the uCore server's first install
 cosign.pub                                   # image-signing public key (private key is a repo secret)
 Justfile                                     # local build + setup commands (`just`)
-.github/workflows/build.yml                  # weekly / push / dispatch: builds all four
-.github/workflows/iso.yml                    # manual: student/staff installer ISOs (Titanoboa)
+.github/workflows/build.yml                  # weekly / push / dispatch: builds both images
+.github/workflows/iso.yml                    # the installer ISO (Titanoboa)
 archived/                                    # the previous FROM-bluefin implementation, for reference
 ```
 
@@ -76,16 +98,10 @@ Building an **installer ISO** additionally needs a beefy host with root `podman`
 and plenty of disk — it's heavy; prefer the `iso` CI workflow (see below).
 
 ```bash
-just build-base                 # svk-base first — everything builds FROM it
-just build-staff                # svk-staff  (FROM the local svk-base)
-just build-student              # svk-student (FROM the local svk-base)
-just build-server               # independent (uCore)
-just build-desktops             # base + staff + student, in order
-just build-all                  # all four
+just build-os                   # the desktop image
+just build-server               # the uCore server image (independent)
+just build-all                  # both — no ordering needed
 ```
-
-To build a derived image against the *pushed* base instead of a local one:
-`just build-staff base_image=ghcr.io/svkoulu/svk-base:latest`.
 
 CI builds the same images via `.github/workflows/build.yml` (which uses a composite
 action, not this Justfile) and cosign-signs each with the `COSIGN_PRIVATE_KEY`
@@ -93,30 +109,41 @@ secret.
 
 ## Add / remove packages & apps
 
-- **RPM packages** (system-wide, all desktops): edit the `dnf5 install` list in
+- **RPM packages** (system-wide): edit the `dnf5 install` list in
   [`build/10-packages.sh`](build/10-packages.sh). `dnf5 install` is a no-op for
-  anything Silverblue already ships. To *remove* a package Silverblue includes, add
-  a `dnf5 remove -y <pkg>` (see how `build.student.sh` strips `gnome-tour` /
-  `malcontent-control`).
-- **Flatpak apps** (baked into the ISOs): edit `flatpaks/common.list` (shared) or
-  `flatpaks/student.list` / `flatpaks/staff.list` (per-flavor). One app ID per line.
-- **Firefox / uBlock Origin policy**: `files/{base,student,staff}/etc/firefox/policies/policies.json`
-  (each image ships a full override — Firefox reads only one).
+  anything Silverblue already ships; to *remove* one it includes, add it to the
+  removal loop at the top of the same file (that's how `gnome-tour`,
+  `malcontent-control` and the RPM Firefox go).
+- **Flatpak apps** (baked into the ISO): edit `flatpaks/common.list`. One app ID per
+  line — it carries a **never-add** list at the top, read that before adding.
+- **Who can run an app**: the matrix in [`build/40-desktop.sh`](build/40-desktop.sh)
+  (group + mode on the binary, plus the hidden-launcher sets).
+- **Firefox / uBlock Origin policy**: `files/os/etc/firefox/policies/policies.json`
+  (one policy for the fleet — Firefox reads exactly one, and it is machine-scoped).
 
 ## Deploy / install the OS
 
-**Desktops** — build an installer ISO and flash it (Titanoboa bakes the flatpaks in):
+**Desktops** — build the installer ISO and flash it (Titanoboa bakes the flatpaks in):
 
 ```bash
-just iso student local          # or: staff ; or repo=ghcr to use the pushed image
-just run-iso student            # boot that ISO in a throwaway VM to test the installer
-# CI: Actions → iso → Run workflow → pick a flavor
+just iso local                  # or repo=ghcr to use the pushed image
+just run-iso                    # boot that ISO in a throwaway VM to test the installer
+# CI: Actions → iso → Run workflow → pick a channel
 ```
 
-Installing from that ISO lands the machine directly on `svk-student` / `svk-staff`,
-pointed at the signed `:stable` ref for auto-updates — no manual `bootc switch`
-needed. (You can also rebase an existing bootc system:
-`sudo bootc switch ghcr.io/svkoulu/svk-<flavor>:stable`, or pin a release line with
+**One ISO for the whole fleet.** It bakes both role kickstarts; the operator picks at
+boot from the GRUB menu:
+
+| entry | what it creates |
+|---|---|
+| `Install … - LAB machine (opilas kiosk)` *(default)* | `opilas` (locked password, autologin, kiosk dconf profile) + `admin` |
+| `Install … - STAFF laptop` | `staff` (normal login, `svk-staff` group, password expired at first login) + `admin` |
+| `Live desktop` (×2) | no install — a full live session with the on-site repair kit |
+
+Both install entries are automated and **erase the disk**. Installing lands the
+machine directly on `svk-os`, pointed at the signed `:stable` ref for auto-updates —
+no manual `bootc switch` needed. (You can also rebase an existing bootc system:
+`sudo bootc switch ghcr.io/svkoulu/svk-os:stable`, or pin a release line with
 `:stable-<N>`.)
 
 ### Channels
@@ -124,9 +151,9 @@ needed. (You can also rebase an existing bootc system:
 Two channels, ublue-style:
 
 - **`:stable`** — what the fleet tracks. Built from **git tags** (cut a tag `N` → publishes `:stable`, `:stable-N`, `:stable-N-YYYYMMDD`). The weekly cron rebuilds the latest tag for security fixes **without** pulling in unreleased code, so the fleet stays patched but only advances features when you tag. Pin a machine to a release line with `:stable-N` (it won't auto-jump to `N+1`).
-- **`:testing`** (alias `:latest`) — built from every push to `main` (and weekly). For test machines; carries `testing-YYYYMMDD` so a build is self-evidently a dev image.
+- **`:testing`** (alias `:latest`) — built from every push to `main`. For test machines; carries `testing-YYYYMMDD` so a build is self-evidently a dev image. The weekly cron deliberately does **not** rebuild it: testing already rebuilds whenever it's being worked on, and the cron exists to get security fixes to the *fleet*.
 
-The version (`stable-N-YYYYMMDD` / `testing-YYYYMMDD`) is identical across the image tag, os-release `IMAGE_VERSION`, the `org.opencontainers.image.version` label, `/usr/share/svk-os/image-info.json`, and the ISO filename. It's also folded into os-release `PRETTY_NAME` (e.g. `SVK OS (staff-testing-20260719)`) and the ISO's GRUB boot-menu entry, since PRETTY_NAME is the one field the Anaconda WebUI installer and GNOME's About page actually display.
+The version (`stable-N-YYYYMMDD` / `testing-YYYYMMDD`) is identical across the image tag, os-release `IMAGE_VERSION`, the `org.opencontainers.image.version` label, `/usr/share/svk-os/image-info.json`, and the ISO filename. It's also folded into os-release `PRETTY_NAME` (e.g. `SVK OS (testing-20260719)`) and the ISO's GRUB boot-menu entry, since PRETTY_NAME is the one field the Anaconda WebUI installer and GNOME's About page actually display.
 
 **Server** — uCore installs via Ignition, not an ISO:
 

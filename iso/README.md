@@ -1,6 +1,6 @@
 # svk ISOs — Titanoboa (container-native ISO contract)
 
-The two desktop installer ISOs (`svk-student`, `svk-staff`) are built with
+The installer ISO — **one ISO for the whole fleet** — is built with
 [Titanoboa](https://github.com/ublue-os/titanoboa), the same tool Bazzite's live
 ISOs use. Titanoboa is pinned to a specific commit
 (`5c457c3d0518bd17e754be0fd98a60d29d26abb4`, 2026-05-19) — upstream did a breaking
@@ -10,8 +10,8 @@ entirely. Titanoboa is now a thin tool: it just squashfs's a container image int
 a boot-and-run LiveOS ISO, driven by an `/usr/lib/bootc-image-builder/iso.yaml`
 baked **inside the image**. Anaconda, the kickstart, and the offline flatpak bake
 are no longer something Titanoboa injects — they're baked into a throwaway
-**installer image** (`iso/installer/`) built FROM the real `svk-<flavor>` image
-and fed to Titanoboa. That installer image is never pushed anywhere; only the ISO
+**installer image** (`iso/installer/`) built FROM the real `svk-os` image and fed to
+Titanoboa. That installer image is never pushed anywhere; only the ISO
 it produces matters. This is decision **D6** in the rebuild plan; it replaced the
 old plain `bootc-image-builder` ISO workflow, and was itself later adapted when
 Titanoboa's own interface changed upstream.
@@ -20,13 +20,12 @@ Titanoboa's own interface changed upstream.
 
 | File | Role |
 |---|---|
-| `flatpaks/common.list` | shared fleet apps, baked into **both** ISOs |
-| `flatpaks/student.list` / `staff.list` | per-flavor extras (concatenated with common) |
-| `iso/installer/Containerfile` | builds the throwaway installer image `FROM` the real `svk-<flavor>` image |
-| `iso/installer/build.sh` | installs Anaconda (+`tmux`, needed by `anaconda.service`), writes the kickstart (localization + auto-partition + LUKS, `bootc switch`es the origin to the signed registry ref, rsyncs the baked `/var/lib/flatpak` onto the target — **no Secure Boot enrollment**, N4), pre-installs the flatpak set into `/var/lib/flatpak`, adds `dracut-live`/`livesys-scripts` for live-boot, and writes `iso.yaml` |
-| `iso/build-iso.sh` | wrapper: get the base image into root's podman storage, generate a per-build LUKS bootstrap passphrase, build the installer image, run pinned Titanoboa against it, collect the ISO |
-| `files/base/usr/libexec/svk/luks-tpm-enroll` (+ `.service`) | first-boot: TPM2 auto-unlock enrollment + on-screen per-machine recovery key (shipped in the base image, not the ISO) |
-| `.github/workflows/iso.yml` | manual `workflow_dispatch` build of either/both flavors |
+| `flatpaks/common.list` | the fleet app set, baked into the ISO (system scope) |
+| `iso/installer/Containerfile` | builds the throwaway installer image `FROM` the real `svk-os` image |
+| `iso/installer/build.sh` | installs Anaconda (+`tmux`, needed by `anaconda.service`) and the on-site repair kit, writes **both role kickstarts** (localization + auto-partition + LUKS, `bootc switch`es the origin to the signed registry ref, rsyncs the baked `/var/lib/flatpak` onto the target — **no Secure Boot enrollment**, N4), pre-installs the flatpak set into `/var/lib/flatpak`, adds `dracut-live`/`livesys-scripts` for live-boot, and writes `iso.yaml` |
+| `iso/build-iso.sh` | wrapper: get `svk-os` into root's podman storage, build the installer image, run pinned Titanoboa against it, collect the ISO |
+| `files/os/usr/libexec/svk/luks-tpm-enroll` (+ `.service`) | first-boot: TPM2 auto-unlock enrollment + on-screen per-machine recovery key (shipped in the OS image, not the ISO) |
+| `.github/workflows/iso.yml` | the ISO build — reusable (called by `build.yml` per channel) and `workflow_dispatch` |
 
 ## Dependencies
 
@@ -36,7 +35,7 @@ Beyond the general build dependencies in the top-level `README.md`
 | Tool | Used for |
 |---|---|
 | `git` | cloning the pinned Titanoboa commit |
-| `rsync` | copying that clone into `iso/.build/<flavor>/` |
+| `rsync` | copying that clone into `iso/.build/` |
 | `sudo`, password-authenticated | root podman for the installer-image build (`--cap-add sys_admin`) and Titanoboa's own privileged squashfs/loop-device work |
 
 Install on Fedora: `sudo dnf install git rsync`.
@@ -61,22 +60,31 @@ ever need re-diagnosing):
 ## Build locally
 
 ```bash
-# after svk-student / svk-staff are pushed (or built locally with :latest):
-iso/build-iso.sh student ghcr     # or: iso/build-iso.sh student local
+# after svk-os is pushed (or built locally with :latest):
+iso/build-iso.sh ghcr             # or: iso/build-iso.sh local
 ```
 
-ISO lands at `iso/svk-student-<version>.iso`.
+ISO lands at `iso/svk-os-<version>.iso`.
 
-## Boot menu: two paths, one squashfs
+## Boot menu: the role is a menu choice
 
-Each ISO offers two ways to boot, both from the same live filesystem:
+There is one image and one ISO; **which kind of machine you're building is decided
+at the boot menu**, by picking which kickstart runs. All four entries boot the same
+live filesystem:
 
 | GRUB entry | What it does |
 |---|---|
-| **0 — `Install … - automated, ERASES THE DISK`** (default, 15s) | Boots `systemd.unit=anaconda.target` — the same code path a Fedora **boot.iso** uses — and hands Anaconda the complete kickstart via `inst.kickstart=`. Zero clicks: installs, then reboots. Text UI on the console (no `quiet rhgb`), so provisioning is watchable. |
-| **1/2 — `Live desktop …`** (plain / basic graphics) | The normal live GNOME session, fully featured (browser, terminal, disk tools) for triage and recovery. Installing from it via *Install to Hard Drive* works, but **interactively** — see below. |
+| **0 — `Install … - LAB machine (opilas kiosk)`** (default, 15s) | Boots `systemd.unit=anaconda.target` — the same code path a Fedora **boot.iso** uses — and hands Anaconda `svk-lab.ks`. Creates `opilas` (locked password, GDM autologin, kiosk dconf profile, `opilas` hidden-launcher set) + `admin`. Zero clicks: installs, then reboots. |
+| **1 — `Install … - STAFF laptop`** | Same, with `svk-staff.ks`: creates `staff` (normal login, `svk-staff` group, password expired at first login, `wheel-only` hidden-launcher set) + `admin`. |
+| **2/3 — `Live desktop …`** (plain / basic graphics) | The normal live GNOME session, fully featured, plus the on-site repair kit (`nmap`, `smartmontools`, `nvme-cli`, `ddrescue`, `testdisk`, `gparted`, `tcpdump`, `cryptsetup`, `tpm2-tools`, …). Installing from it via *Install to Hard Drive* works, but **interactively** and with **no role** — see below. |
 
-> ⚠️ The automated entry is the **default** and erases the target disk after a 15s
+Both install entries run under **`inst.cmdline`**, not `inst.text`: fully
+non-interactive. If the kickstart ever fails to answer something, the install
+**aborts with the unanswered question on the console** instead of parking at a
+prompt that, on an unattended provisioning run, is indistinguishable from a slow
+install.
+
+> ⚠️ Entry 0 is the **default** and erases the target disk after a 15s
 > timeout. Don't leave a provisioning USB in a machine you're only rebooting.
 
 **Why the automated path can't just be the live session with a kickstart** — this
@@ -105,7 +113,10 @@ Hence the automated entry avoids `--liveinst` altogether by booting
   value after `inst.ks=` is parsed and thrown away. `--kickstart` is the variant
   that takes a path, and it wants a plain path, not a `file://` URL.
 
-The live-desktop path gets `interactive-defaults.ks` populated with the
+The live-desktop path gets **no role** — neither role's accounts nor its
+`environment.d` files — so an interactively-installed machine is a plain `svk-os`
+desktop and whoever the operator creates gets the unrestricted launcher set. It gets
+`interactive-defaults.ks` populated with the
 `ostreecontainer` line and the same `%post` steps. That is **not** cosmetic: an
 empty `interactive-defaults.ks` makes Anaconda fall back to `LiveOSPayload`, which
 would write the throwaway installer rootfs to disk as a plain, non-bootc system
@@ -117,25 +128,34 @@ fleet's provisioning route.
 
 ## Install automation & disk encryption
 
-The kickstart pre-answers every Anaconda step, so **both** flavors install with no
-manual steps from the **automated** GRUB entry:
+Both kickstarts pre-answer every Anaconda step, so either role installs with no
+manual steps from its **automated** GRUB entry. They differ ONLY in the role
+`%post` — same image, same everything else:
 
-| | student | staff |
+| | lab (`svk-lab.ks`) | staff (`svk-staff.ks`) |
 |---|---|---|
-| Delivery | complete kickstart via `inst.kickstart=` (`svk-student.ks`) | complete kickstart via `inst.kickstart=` (`svk-staff.ks`) |
 | Manual steps | **none** — installs and reboots on its own | **none** — installs and reboots on its own |
-| Account | baked `opilas` (sysusers.d); root locked | baked `staff` login (regular user, no sudo); root locked |
+| Accounts | `opilas` (uid 1000, locked password, GDM autologin) + `admin`; root locked | `staff` (regular user, no sudo, group `svk-staff`) + `admin`; root locked |
+| Role `%post` | writes `/etc/gdm/custom.conf` (autologin) and `/etc/skel/…/20-svk-role.conf` (`DCONF_PROFILE=kiosk` + the `opilas` hidden-launcher set) | writes `/etc/skel/…/20-svk-role.conf` (the `wheel-only` hidden-launcher set) into skel **and** the staff home, then `chage -d 0 staff` |
 | Language / keyboard | Finnish (`fi_FI.UTF-8`, `fi` layout) | same |
 | Timezone | Europe/Helsinki | same |
 | Disk | wipe all disks → btrfs autopart, LUKS-encrypted | same |
 
-The staff account is currently a **placeholder** — username `staff`, password
-`stafff` (6 chars to clear Anaconda's default `pwpolicy user --minlen=6`), a regular
-non-sudo user (local admin is intentionally SSH-only via the `admin` account). It
-exists to confirm staff can install fully unattended; the per-site **USB
-provisioning config** (`tasks/todo/20260719-0110-usb-provisioning-config.md`) will
-replace it with the real account(s) read from the SVK-PROV USB. **Change the staff
-password on first login / before the fleet ships.**
+`opilas` is created **by the kickstart**, not by `sysusers.d` in the image: with one
+image for the whole fleet, that has to be an install-time decision or every staff
+laptop would grow a kiosk account too. Everything kiosk-shaped in the image gates on
+that account existing, so it is simply inert on a staff laptop.
+
+The staff account is still a **placeholder** — username `staff`, with a placeholder
+password that the kickstart **expires immediately** (`chage -d 0`), so the teacher is
+forced to set a real one at first login. Override it per build with
+`STAFF_PASSWORD=… iso/build-iso.sh …`. This matters more than it used to: the
+lab/staff boundary is now scoped to the *account*, not the machine, so a weak staff
+password is a real hole rather than a cosmetic one. The proper fix is the per-site
+**USB provisioning config**
+(`tasks/todo/20260719-0110-usb-provisioning-config.md`), which removes the baked
+password entirely rather than substituting a better one — **do not treat this as
+closed.**
 
 **Disk encryption (LUKS + TPM2).** There is **no secret in the ISO.** The LUKS
 passphrase is **generated per install**, in the kickstart's `%pre` (see the
@@ -170,7 +190,7 @@ per-machine passphrase to the physically-controlled SVK-PROV USB instead. On
 target hardware (TPM 2.0 standard), this path is not normally hit.
 
 ⚠️ **Not yet validated on hardware** — confirm a TPM machine auto-unlocks (test it in
-a VM with an emulated TPM first: `just run-iso <flavor>`, see below). If it still prompts
+a VM with an emulated TPM first: `just run-iso`, see below). If it still prompts
 every boot despite a TPM, the initramfs isn't honouring `rd.luks.options`; the recovery
 key always works meanwhile.
 
@@ -182,9 +202,9 @@ with the exact source it came from, look here:
 
 | File | Where it lives | Contains | How to read it |
 |---|---|---|---|
-| `iso/svk-<flavor>-<version>.build-info.json` | **Next to the ISO**, and in the CI artifact zip alongside it | flavor, channel, image-ref, image-version, **packaged-image commit**, **iso/ scripts commit**, iso filename, build timestamp | open the file (no boot/unsquash needed) — the fast path |
-| CI artifact name | GitHub Actions | `svk-<flavor>-<channel>-<shortsha>-iso` | the downloaded zip's name is self-identifying |
-| `/usr/share/svk-os/iso-build-info.json` | Inside the ISO's **live/installer env** (the squashfs) | flavor, image-ref, **iso/ scripts commit**, built-at | boot the installer and `cat` it, or `unsquashfs` `LiveOS/squashfs.img` |
+| `iso/svk-os-<version>.build-info.json` | **Next to the ISO**, and in the CI artifact zip alongside it | roles, channel, image-ref, image-version, **packaged-image commit**, **iso/ scripts commit**, iso filename, build timestamp | open the file (no boot/unsquash needed) — the fast path |
+| CI artifact name | GitHub Actions | `svk-os-<channel>-<shortsha>-iso` | the downloaded zip's name is self-identifying |
+| `/usr/share/svk-os/iso-build-info.json` | Inside the ISO's **live/installer env** (the squashfs) | image-ref, roles, **iso/ scripts commit**, built-at | boot the installer and `cat` it, or `unsquashfs` `LiveOS/squashfs.img` |
 | `/usr/share/svk-os/image-info.json` | Inside the **installed image** | image identity + **`git-commit`** of the packaged image | on a running machine, `cat` it |
 | os-release `BUILD_ID` / `IMAGE_VERSION` | Inside the **installed image** | packaged-image commit / version string | `cat /etc/os-release` on a running machine |
 
@@ -197,7 +217,7 @@ none of these files.
 
 ## Test the ISO in a VM (`just run-iso`)
 
-`just run-iso <flavor>` boots the newest locally-built `iso/svk-<flavor>-*.iso` in a
+`just run-iso` boots the newest locally-built `iso/svk-os-*.iso` in a
 throwaway VM to exercise the whole install → reboot → first-boot path end-to-end,
 **including LUKS + TPM auto-unlock**. It runs the [`qemux/qemu`](https://github.com/qemus/qemu)
 container (needs `/dev/kvm` + `podman`, but **no host qemu or swtpm**): `BOOT_MODE=uefi`
@@ -205,7 +225,8 @@ gives it an OVMF/UEFI firmware and `TPM=Y` gives it an emulated **TPM 2.0**, so 
 install-time `%post` enrollment binds to PCR 7 and the reboot should auto-unlock with
 no passphrase prompt — the same flow as real hardware. The install disk is ephemeral
 (discarded on exit); the Anaconda/boot web console is at `http://localhost:8006`
-(auto-opened). Build the ISO first with `just iso <flavor> local`.
+(auto-opened). Build the ISO first with `just iso local`, and pick the role in the
+guest's own GRUB menu.
 
 ## How updates work after install (D7 — the LAN mirror)
 
@@ -225,15 +246,23 @@ item; it repurposes the GPG-key-extraction logic from the old
       "kickstart is not supported on live iso installs" — fixed by the automated
       `anaconda.target` GRUB entry above; needs a re-test.)*
 - [x] **Install automation** — Finnish locale/keyboard, Helsinki TZ, full-disk
-      LUKS auto-partition; **both flavors zero-click** (student = baked `opilas`;
-      staff = baked placeholder `staff` login, to be replaced by the USB
-      provisioning config). *(code; needs the on-hardware validation above.)*
+      LUKS auto-partition; **both roles zero-click** from their own GRUB entry
+      (lab = `opilas`; staff = placeholder `staff` login with an expired password,
+      to be replaced by the USB provisioning config). *(code; needs the on-hardware
+      validation above.)*
 - [ ] **Validate TPM2 auto-unlock + on-screen recovery key** on real hardware
       (see "Install automation & disk encryption").
-- [x] **Per-image branding** — done: student/staff stamp their own os-release via
-      `/usr/libexec/svk/stamp-os-release`. `IMAGE_ID` reports `svk-student` /
-      `svk-staff` (not `svk-base`) for tooling; `PRETTY_NAME` (what fastfetch and
-      the Anaconda WebUI actually display) carries flavor + channel + version,
-      e.g. `SVK OS (staff-stable-1-20260719)`.
+- [x] **Image branding** — os-release is stamped via
+      `/usr/libexec/svk/stamp-os-release`. `IMAGE_ID` reports `svk-os` for tooling;
+      `PRETTY_NAME` (what fastfetch and the Anaconda WebUI actually display) carries
+      channel + version, e.g. `SVK OS (stable-1-20260719)`.
 - [ ] **LAN-mirror `flatpak update` wiring** (D7) — the client-side remote setup.
-- [ ] Confirm the kiosk autologin (`opilas`, sysusers-locked) works post-install.
+- [ ] Confirm the kiosk autologin (`opilas`, created **locked by the kickstart**)
+      works post-install — GDM's autologin PAM stack doesn't check the password, but
+      this moved from `sysusers.d` to the kickstart and needs a re-test.
+- [ ] Confirm the role `%post` lands: on a lab install `DCONF_PROFILE=kiosk` must be
+      in the session env **before** dconf is first read, and the prepended
+      `XDG_DATA_DIRS` must actually hide the restricted launchers without hiding the
+      flatpak apps (flatpak's own env generator runs after systemd's, and appends).
+- [ ] Measure the ISO size after the six new flatpaks + two theme runtimes + the
+      repair kit — LibreOffice, GIMP, Inkscape and Audacity are all large.

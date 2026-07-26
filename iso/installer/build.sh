@@ -15,35 +15,54 @@
 # Silverblue base), no multi-desktop/nvidia variants.
 set -euxo pipefail
 
-FLAVOR="${FLAVOR:?FLAVOR must be set (student|staff)}"
-case "$FLAVOR" in student|staff) ;; *) echo "FLAVOR must be student|staff" >&2; exit 1 ;; esac
+# ONE ISO, TWO ROLES. There is no per-flavor image any more (svk-student and
+# svk-staff collapsed into svk-os), so this ISO bakes BOTH kickstarts and the
+# operator picks a role from the GRUB menu at boot:
+#
+#   svk-lab.ks    -> lab machine:   opilas (kiosk, autologin) + admin
+#   svk-staff.ks  -> staff laptop:  staff  (normal login)     + admin
+#
+# The kickstart is what decides which accounts exist, which is the whole basis of
+# the single-image collapse: the lockdown is scoped to the opilas ACCOUNT, so it
+# ships in every image and is inert wherever that account was never created.
+# See tasks/done/…-single-image-collapse.md.
 
 # The real registry ref the installed machine should track, e.g.
-# ghcr.io/svkoulu/svk-student:stable — independent of what this installer image
-# was built FROM (which may be a local dev tag). Baked into the kickstart's
+# ghcr.io/svkoulu/svk-os:stable — independent of what this installer image was
+# built FROM (which may be a local dev tag). Baked into the kickstart's
 # ostreecontainer + bootc switch targets.
-: "${IMAGE_REF:?IMAGE_REF must be set (ghcr.io/svkoulu/svk-<flavor>:<tag>)}"
+: "${IMAGE_REF:?IMAGE_REF must be set (ghcr.io/svkoulu/svk-os:<tag>)}"
 IMAGE_REPO="${IMAGE_REF%%:*}"
 IMAGE_TAG="${IMAGE_REF##*:}"; [[ "$IMAGE_TAG" == "$IMAGE_REPO" ]] && IMAGE_TAG="stable"
 
+# Placeholder password for the baked `staff` login. INTERIM — the real fix is the
+# per-site USB provisioning config, which generates the real accounts and removes
+# the baked password entirely (tasks/todo/20260719-0110-usb-provisioning-config.md).
+# Until then two things keep it honest: it is overridable per build
+# (STAFF_PASSWORD=… iso/build-iso.sh …), and the kickstart expires it immediately
+# so the teacher MUST set a real one at first login. With the lab/staff boundary
+# now account-scoped rather than machine-scoped, this password is load-bearing —
+# do not treat a better default as closing the issue.
+STAFF_PASSWORD="${STAFF_PASSWORD:-svk-vaihda-tama}"
+
 # BASE_IMAGE's org.opencontainers.image.version (e.g. stable-1-20260719), read by
 # iso/build-iso.sh before this build; blank for a local image with no version
-# label. Same "SVK OS (<flavor>-<version>)" format as os-release PRETTY_NAME (see
+# label. Same "SVK OS (<version>)" format as os-release PRETTY_NAME (see
 # stamp-os-release) so the GRUB boot menu and the Anaconda WebUI agree.
 VERSION="${VERSION:-}"
-DISPLAY_NAME="SVK OS (${FLAVOR}${VERSION:+-${VERSION}})"
+DISPLAY_NAME="SVK OS${VERSION:+ (${VERSION})}"
 
 # NOTE: the LUKS encryption passphrase is NOT set here and is NOT baked into the
 # ISO. It is generated per-install in the kickstart's %pre (see common_ks below), so
 # every machine gets a unique, throwaway passphrase and no shared secret ever ships
-# in the installer image. See files/base/usr/libexec/svk/luks-tpm-enroll for the
+# in the installer image. See files/os/usr/libexec/svk/luks-tpm-enroll for the
 # first-boot enrollment/wipe, and iso/README.md for the full disk-encryption model.
 
 # ISO9660 volume label — what shows up as the USB drive's name in a file manager
 # once it's burned/dd'd, and what root=live:CDLABEL=${LABEL} below matches against
-# to find the right device at boot. Level-1 caps this at 32 chars (svk-student-
-# stable-<N>-<date> is 29 at N=1, room to spare).
-LABEL="svk-${FLAVOR}${VERSION:+-${VERSION}}"
+# to find the right device at boot. Level-1 caps this at 32 chars (svk-os-stable-
+# <N>-<date> is 24 at N=1, room to spare).
+LABEL="svk-os${VERSION:+-${VERSION}}"
 
 ### Live-environment tweaks ####################################################
 # Don't suspend during install / first-boot user creation.
@@ -81,9 +100,20 @@ dnf5 install -y \
     tmux \
     firefox            # live-env browser only; not in the installed svk image
 
+# On-site repair kit. The live ISO is the only environment a technician has when
+# a machine won't boot — and, being throwaway, it's the one place where adding
+# tools costs nothing but ISO size. tpm2-tools in particular is what lets someone
+# diagnose a failed LUKS/TPM enrollment on the machine itself rather than by
+# guessing. (`gdu` is not packaged in Fedora; `ncdu` is.)
+dnf5 install -y \
+    nmap ncdu bat vim ripgrep jq whois traceroute \
+    smartmontools nvme-cli ddrescue testdisk gparted \
+    hwinfo pciutils usbutils ethtool tcpdump \
+    efibootmgr cryptsetup btrfs-progs tpm2-tools
+
 mkdir -p /var/lib/rpm-state # needed for Anaconda's WebUI front-end
 
-# Anaconda profile for svk. Matches our os-release VARIANT_ID=silverblue (svk-base
+# Anaconda profile for svk. Matches our os-release VARIANT_ID=silverblue (svk-os
 # is raw Silverblue, not FROM bluefin, so it never gets bluefin's VARIANT_ID=main —
 # confirmed by inspecting a built image; the old hook-anaconda.sh's "variant_id =
 # main" was never validated and was simply wrong, so Anaconda fell back to a
@@ -91,11 +121,9 @@ mkdir -p /var/lib/rpm-state # needed for Anaconda's WebUI front-end
 #
 # No hidden_spokes/hidden_webui_pages here: the WebUI ignores the old GTK spoke
 # names (that's why a hidden UserSpoke still showed the account page), and the
-# modern anaconda-screen-* page ids are Fedora-version-fragile. Instead the
-# complete kickstart below *pre-satisfies* every step (locale/keyboard/timezone/
-# storage/encryption/account) for BOTH flavors, so nothing prompts at all — staff
-# now bakes its login account too (see the case block), rather than stopping at the
-# Create Account page.
+# modern anaconda-screen-* page ids are Fedora-version-fragile. Instead both
+# kickstarts below *pre-satisfy* every step (locale/keyboard/timezone/storage/
+# encryption/account), so nothing prompts at all.
 mkdir -p /etc/anaconda/profile.d
 tee /etc/anaconda/profile.d/svk.conf <<'EOF'
 [Profile]
@@ -135,7 +163,7 @@ EOF
 # discovery doesn't verify the same way from inside a nested build. Swap in a
 # permissive policy just for this internal fetch: the kickstart's own install step
 # already does `--no-signature-verification` explicitly, and the INSTALLED system's
-# real policy.json comes from the deployed svk-staff content itself, not from
+# real policy.json comes from the deployed svk-os content itself, not from
 # anything in this throwaway installer image, so this has no effect on the fleet's
 # actual signature enforcement.
 cp /etc/containers/policy.json /tmp/svk-policy.json
@@ -149,25 +177,24 @@ echo '{"default":[{"type":"insecureAcceptAnything"}]}' > /etc/containers/policy.
 podman pull "${IMAGE_REPO}:${IMAGE_TAG}"
 mv /tmp/svk-policy.json /etc/containers/policy.json
 
-### Kickstart #################################################################
-# The kickstart pre-satisfies every Anaconda step so nothing prompts: Finnish
+### Kickstarts ################################################################
+# Both kickstarts pre-satisfy every Anaconda step so nothing prompts: Finnish
 # locale + keyboard, Helsinki timezone, and full-disk btrfs with LUKS encryption
-# (TPM2 auto-unlock is enrolled at first boot — see luks-tpm-enroll in the base
-# image). It installs the svk image from the ISO's own containers-storage, then
-# re-points the bootc origin at the signed registry ref so the machine auto-updates
-# from ghcr enforcing svk's cosign policy; disables Fedora flatpaks; rsyncs the
-# offline-baked flatpaks onto the target; and fixes their SELinux labels. NO Secure
-# Boot enrollment.
+# (TPM2 auto-unlock is enrolled at first boot — see luks-tpm-enroll in the image).
+# They install svk-os from the ISO's own containers-storage, then re-point the
+# bootc origin at the signed registry ref so the machine auto-updates from ghcr
+# enforcing svk's cosign policy; disable Fedora flatpaks; rsync the offline-baked
+# flatpaks onto the target; and fix their SELinux labels. NO Secure Boot enrollment.
 #
-#   student — fully unattended: complete kickstart (baked opilas account, locked
-#             root, reboot) delivered via inst.kickstart= on the boot cmdline of
-#             the automated GRUB entry (iso.yaml).
-#   staff   — fully unattended too: complete kickstart with a baked `staff` login
-#             (placeholder password, regular user — no sudo; admin handles that over
-#             SSH). This is the validation step that proves the account step can be
-#             fully automated with NO Create Account page; the per-site USB
-#             provisioning config (tasks/todo/20260719-0110-usb-provisioning-config.md)
-#             replaces this placeholder later.
+# They differ ONLY in the role %post: which accounts exist, and which per-account
+# environment.d files get planted. Same image either way.
+#
+#   svk-lab.ks   — lab machine:  opilas (locked password, GDM autologin, kiosk
+#                  dconf profile + the `opilas` hidden-launcher set) + admin.
+#   svk-staff.ks — staff laptop: `staff` (regular user, no sudo — admin handles
+#                  that over SSH; member of svk-staff for gnome-software and
+#                  system-scope flatpak installs; password expired on first login)
+#                  + admin.
 mkdir -p /usr/share/anaconda/post-scripts
 
 # Directives shared by both flavors. `clearpart --all` + `autopart` remove the disk
@@ -219,36 +246,114 @@ ostreecontainer --url=${IMAGE_REPO}:${IMAGE_TAG} --transport=containers-storage 
 EOF
 }
 
-case "$FLAVOR" in
-student)
-    # Complete, non-interactive kickstart: no account page (opilas is baked into the
-    # image via sysusers.d), root locked, auto-reboot when done. Referenced by
-    # the automated entry's inst.kickstart= in iso.yaml, so Anaconda runs it
-    # start-to-finish with no clicks.
-    { common_ks; cat <<'EOF'
+# --- lab role: the kiosk account ---------------------------------------------
+# opilas is created HERE, not by sysusers.d in the image: with one image for the
+# whole fleet, the account has to be an install-time decision or every staff
+# laptop would grow a kiosk user too. Its password is locked — GDM's autologin
+# PAM stack doesn't check one — and it is in no privileged group.
+#
+# --uid=1000 keeps it the first regular user, which is what AccountsService shows
+# in the greeter (admin sits at 480, below UID_MIN, and stays hidden).
+{ common_ks; cat <<'EOF'
+user --name=opilas --uid=1000 --gecos="Kiosk student (opilas)" --lock
 rootpw --lock
 firstboot --disable
+%include /usr/share/anaconda/post-scripts/svk-role-lab.ks
 reboot
 EOF
-    } > /usr/share/anaconda/svk-student.ks
-    ;;
-staff)
-    # Complete, non-interactive kickstart too — no Create Account page. Bakes a
-    # `staff` login as a REGULAR user (no --groups=wheel: local sudo is intentionally
-    # admin-only, over SSH). The password is a deliberate placeholder — `stafff`, 6
-    # chars to clear Anaconda's default `pwpolicy user --minlen=6` — that lets us
-    # confirm end-to-end that staff can install with zero manual steps. The per-site
-    # USB provisioning config replaces this with the real account(s) later; when it
-    # lands, its %pre-generated `user` line supersedes this one.
-    { common_ks; cat <<'EOF'
-user --name=staff --gecos="Staff" --password=stafff --plaintext
+} > /usr/share/anaconda/svk-lab.ks
+
+# --- staff role: a normal login ----------------------------------------------
+# A REGULAR user: no --groups=wheel, because local sudo is intentionally
+# admin-only and over SSH. `svk-staff` is the group that carries the teacher
+# privileges the image grants — gnome-software (mode 0750, group svk-staff) and
+# the narrow polkit grant for system-scope flatpak installs. The group itself is
+# created by sysusers.d in the image, so it already exists here.
+#
+# It is deliberately NOT called `staff`: useradd refuses to create a user whose
+# user-private group name is already taken, which would abort this install.
+{ common_ks; cat <<EOF
+user --name=staff --gecos="Staff" --groups=svk-staff --password=${STAFF_PASSWORD} --plaintext
 rootpw --lock
 firstboot --disable
+%include /usr/share/anaconda/post-scripts/svk-role-staff.ks
 reboot
 EOF
-    } > /usr/share/anaconda/svk-staff.ks
-    ;;
-esac
+} > /usr/share/anaconda/svk-staff.ks
+
+# --- role %post: lab ----------------------------------------------------------
+# Everything here is machine-local state that the IMAGE deliberately doesn't
+# carry, because carrying it would lock down staff laptops too:
+#
+#   1. GDM autologin. Shipping this in the image would point every machine's
+#      greeter at an account most of them don't have.
+#   2. DCONF_PROFILE=kiosk. /etc/dconf/profile/user applies to EVERY account on
+#      the machine, so the kiosk profile has to be selected per-account instead —
+#      environment.d is the supported per-user way, and the account already uses
+#      it for LANG (see files/os/etc/skel/.config/environment.d/).
+#   3. The `opilas` hidden-launcher set, prepended to XDG_DATA_DIRS: NoDisplay
+#      stubs in /usr/share/svk/hidden-apps/opilas shadow the launchers for the
+#      apps this account can't execute (build/40-desktop.sh). Content stays in
+#      /usr so image updates propagate; only this one-line file is local.
+#
+# Written into /etc/skel, not into ~opilas: reset-opilas-home.service wipes that
+# home back to skel on every logout, so skel is the only place it survives. A lab
+# machine has no other interactive account to pollute (admin's home comes from
+# tmpfiles.d, never from skel).
+tee /usr/share/anaconda/post-scripts/svk-role-lab.ks <<'EOF'
+%post --erroronfail
+install -d -m 0755 /etc/gdm
+cat >/etc/gdm/custom.conf <<'CONF'
+# Written by the svk lab kickstart. Autologin straight into `opilas` — no
+# greeter, no password prompt. GDM's autologin PAM stack does not check the
+# password, so the locked account logs in fine.
+[daemon]
+AutomaticLoginEnable=True
+AutomaticLogin=opilas
+CONF
+
+install -d -m 0755 /etc/skel/.config/environment.d
+cat >/etc/skel/.config/environment.d/20-svk-role.conf <<'CONF'
+# Written by the svk lab kickstart — this machine's role is "lab".
+# Replanted into /home/opilas by reset-opilas-home.sh on every logout.
+DCONF_PROFILE=kiosk
+XDG_DATA_DIRS=/usr/share/svk/hidden-apps/opilas:/usr/local/share:/usr/share
+CONF
+chmod 0644 /etc/skel/.config/environment.d/20-svk-role.conf
+%end
+EOF
+
+# --- role %post: staff --------------------------------------------------------
+# The staff role gets the `wheel-only` hidden-launcher set (the five admin apps)
+# and NO dconf profile override — a staff account is a normal desktop account.
+#
+# Anaconda creates the `user` account BEFORE %post runs, so its home already
+# holds a copy of the pre-role skel; plant the file in both places (skel for any
+# account added later, the live home for the one that already exists).
+#
+# chage -d 0 expires the placeholder password immediately: the teacher is forced
+# to set a real one at first login. See the STAFF_PASSWORD note at the top of
+# this file — this is an interim measure, not the fix.
+tee /usr/share/anaconda/post-scripts/svk-role-staff.ks <<'EOF'
+%post --erroronfail
+install -d -m 0755 /etc/skel/.config/environment.d
+cat >/etc/skel/.config/environment.d/20-svk-role.conf <<'CONF'
+# Written by the svk staff kickstart — this machine's role is "staff".
+XDG_DATA_DIRS=/usr/share/svk/hidden-apps/wheel-only:/usr/local/share:/usr/share
+CONF
+chmod 0644 /etc/skel/.config/environment.d/20-svk-role.conf
+
+staff_home="$(getent passwd staff | cut -d: -f6)"
+if [ -n "$staff_home" ] && [ -d "$staff_home" ]; then
+    mkdir -p "${staff_home}/.config/environment.d"
+    cp /etc/skel/.config/environment.d/20-svk-role.conf \
+       "${staff_home}/.config/environment.d/20-svk-role.conf"
+    chown -R staff: "${staff_home}/.config"
+fi
+
+chage -d 0 staff
+%end
+EOF
 
 # The live-desktop GRUB entries carry no kickstart at all, so if the operator
 # installs from the live session ("Install to Hard Drive" -> liveinst -> `anaconda
@@ -265,9 +370,13 @@ esac
 # enrollment (see the guard in svk-luks-bootstrap.ks), so it prompts for that
 # passphrase on every boot. This path is a fallback for odd hardware, not the
 # fleet's provisioning route.
+#
+# No role %post here either: an interactively-installed machine gets neither role's
+# accounts or environment.d files. It is a plain svk-os desktop, and whoever the
+# operator creates in the UI gets the default (unrestricted-launcher) experience.
 cat >/usr/share/anaconda/interactive-defaults.ks <<EOF
 # svk defaults for an INTERACTIVE install from the live desktop session.
-# The unattended route is the automated GRUB entry -> svk-${FLAVOR}.ks.
+# The unattended route is an automated GRUB entry -> svk-lab.ks / svk-staff.ks.
 lang fi_FI.UTF-8
 keyboard --vckeymap=fi --xlayouts=fi
 timezone Europe/Helsinki --utc
@@ -319,7 +428,7 @@ EOF
 # Seed the target with THIS machine's per-install LUKS passphrase (minted in %pre).
 # Runs --nochroot so it can read the passphrase from the installer runtime's /tmp and
 # write it into the target under /mnt/sysimage. The first-boot service
-# (files/base/usr/libexec/svk/luks-tpm-enroll) consumes it to enroll the TPM +
+# (files/os/usr/libexec/svk/luks-tpm-enroll) consumes it to enroll the TPM +
 # per-machine recovery key, then WIPES the slot and deletes the file — so it never
 # unlocks anything on the running fleet, and no shared secret was ever in the ISO.
 #
@@ -361,9 +470,11 @@ fi
 EOF
 
 ### Bake the offline flatpak set into THIS image ###############################
+# One list for one image — flatpaks/{student,staff}.list are gone. These land in
+# SYSTEM scope (/var/lib/flatpak), which is what makes them survive an opilas home
+# reset and what lets a teacher's later system-scope install reach the kiosk too.
 curl --retry 3 -Lo /etc/flatpak/remotes.d/flathub.flatpakrepo https://dl.flathub.org/repo/flathub.flatpakrepo
-cat /tmp/flatpaks/common.list "/tmp/flatpaks/${FLAVOR}.list" \
-    | sed 's/#.*//' | tr -d '[:blank:]' | grep -v '^$' | sort -u \
+sed 's/#.*//' /tmp/flatpaks/common.list | tr -d '[:blank:]' | grep -v '^$' | sort -u \
     | xargs -r flatpak install -y --noninteractive --system flathub
 
 ### Live-boot support (dracut-live: dmsquash-live mounts the squashfs at boot) ##
@@ -448,12 +559,20 @@ systemctl enable var-lib-flatpak.mount
 # is parsed and thrown away. `--kickstart` is the variant that takes a path, and
 # it wants a plain path, not a file:// URL (it's fed to os.path.exists()).
 #
-# `inst.text`: run the TUI. A complete kickstart needs no UI, and this keeps the
-# automated path from depending on a Wayland compositor (the live image has no
-# gnome-kiosk). Progress prints to the console — hence no `quiet rhgb` here.
-AUTO_ARGS="systemd.unit=anaconda.target inst.text"
-AUTO_ARGS="${AUTO_ARGS} inst.kickstart=/usr/share/anaconda/svk-${FLAVOR}.ks"
+# `inst.cmdline`: run fully non-interactive, not just text-mode. If the kickstart
+# ever fails to answer something, inst.cmdline ABORTS with the unanswered question
+# printed on the console — visible, diagnosable failure. The old `inst.text` would
+# instead sit at a prompt forever, which on an unattended provisioning run looks
+# identical to a slow install. It also keeps this path off any Wayland compositor
+# (the live image has no gnome-kiosk). Progress prints to the console — hence no
+# `quiet rhgb` here.
+AUTO_ARGS="systemd.unit=anaconda.target inst.cmdline"
 
+# TWO automated entries, one per role. This is how a single ISO provisions both
+# kinds of machine: the operator picks the role at boot, and no second USB stick
+# or OEMDRV partition has to be managed. Entry 0 stays the default because lab
+# machines are the bulk of the fleet and their install is the one that has to be
+# hands-off across a whole cart.
 mkdir -p /usr/lib/bootc-image-builder
 tee /usr/lib/bootc-image-builder/iso.yaml <<EOF
 label: "${LABEL}"
@@ -461,8 +580,11 @@ grub2:
   timeout: 15
   default: 0
   entries:
-    - name: "Install ${DISPLAY_NAME} - automated, ERASES THE DISK"
-      linux: "/images/pxeboot/vmlinuz root=live:CDLABEL=${LABEL} enforcing=0 rd.live.image ${AUTO_ARGS}"
+    - name: "Install ${DISPLAY_NAME} - LAB machine (opilas kiosk) - automated, ERASES THE DISK"
+      linux: "/images/pxeboot/vmlinuz root=live:CDLABEL=${LABEL} enforcing=0 rd.live.image ${AUTO_ARGS} inst.kickstart=/usr/share/anaconda/svk-lab.ks"
+      initrd: "/images/pxeboot/initrd.img"
+    - name: "Install ${DISPLAY_NAME} - STAFF laptop - automated, ERASES THE DISK"
+      linux: "/images/pxeboot/vmlinuz root=live:CDLABEL=${LABEL} enforcing=0 rd.live.image ${AUTO_ARGS} inst.kickstart=/usr/share/anaconda/svk-staff.ks"
       initrd: "/images/pxeboot/initrd.img"
     - name: "Live desktop - ${DISPLAY_NAME}"
       linux: "/images/pxeboot/vmlinuz quiet rhgb root=live:CDLABEL=${LABEL} enforcing=0 rd.live.image"
@@ -483,8 +605,8 @@ EOF
 mkdir -p /usr/share/svk-os
 cat >/usr/share/svk-os/iso-build-info.json <<EOF
 {
-  "flavor": "${FLAVOR}",
   "image-ref": "${IMAGE_REPO}:${IMAGE_TAG}",
+  "roles": ["lab", "staff"],
   "iso-git-commit": "${ISO_GIT_SHA:-}",
   "built-at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 }
@@ -492,4 +614,4 @@ EOF
 
 dnf5 clean all
 
-echo "svk installer build.sh complete for ${IMAGE_REPO}:${IMAGE_TAG} (${FLAVOR}), iso-git-commit=${ISO_GIT_SHA:-<none>}"
+echo "svk installer build.sh complete for ${IMAGE_REPO}:${IMAGE_TAG} (roles: lab, staff), iso-git-commit=${ISO_GIT_SHA:-<none>}"
