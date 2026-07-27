@@ -1,167 +1,63 @@
-# Hardware / VM validation backlog — nothing here has ever run on real metal
+# Hardware / VM validation checklist — nothing here has ever run on real metal
 
-Status: **not started.** Consolidated 2026-07-26 from three places that each left
-a validation section unrun:
+Status: **not started.** Consolidated 2026-07-26 from the rebuild plan step 7, the
+fleet-update-cadence spec (shipped in 0cdaf5a by inspection only), and
+`iso/README.md:219`. Single largest open risk in the project: a CI pipeline that
+has never been proven to produce a machine that boots, unlocks, logs in and updates
+itself. The single-image collapse landed 2026-07-27, so "student"/"staff" are
+accounts on one image and everything it added is also unproven.
 
-- `20260717-1845-modular-base-rebuild-implementation-plan.md` step 7 (now in
-  `tasks/done/`) — install one machine of each role and exercise it.
-- `20260719-2126-fleet-update-cadence.md` (now in `tasks/done/`) — the update
-  cadence, ujust tooling and logging shipped in 0cdaf5a **by inspection only**;
-  no podman was available in the session that wrote them.
-- `iso/README.md:219` — the unchecked boxes in "TODOs before ISOs ship".
+`just run-iso <flavor>` gives emulated TPM 2.0 + UEFI — do the VM pass first.
 
-This is the single largest open risk in the project: a working CI pipeline that
-has never been proven to produce a machine that boots, unlocks, logs in and
-updates itself.
+## Blockers (gate everything, or fail OPEN)
 
-## Sequencing — read before starting
+- [ ] End-to-end ISO build + install — 685dc5b's `anaconda.target` GRUB entry has never been re-tested since the 2026-07-21 `liveinst` failure.
+- [ ] `DCONF_PROFILE=kiosk` takes effect before the session's first dconf read — otherwise opilas silently gets an unlocked desktop.
+- [ ] `/etc/dconf/db/kiosk` is compiled and non-empty — a silently empty db means no lockdown and nothing reports it.
+- [ ] LUKS + TPM2 auto-unlock works on reboot after install, PCR 7 only (do not "harden").
+- [ ] Recovery key is displayed on screen and actually unlocks.
+- [ ] `/usr/libexec/svk/tpm2-capable` agrees with real hardware both ways (unit-tested against stubs only).
+- [ ] No-TPM machine: legible banner, no retry loop, recovery key works, passphrase slot kept.
+- [ ] `bootc-fetch-apply-updates.service` has **no `--apply`** on desktops, still `--apply` on server — `--apply` reboots mid-lesson.
+- [ ] Decide how an operator gets a local GUI session: sysusers creates `admin` password-LOCKED, so "Not listed?" has nothing to authenticate against.
 
-**The collapse has landed** (`tasks/done/20260726-1957-single-image-collapse.md`,
-2026-07-27), which was the recommended prerequisite: validating the old
-four-image layout would have meant validating something already scheduled for
-deletion. So "student" and "staff" below are **accounts on one image**, not two
-images, and roughly half the matrix is now one pass instead of two.
+## High (fleet-wide correctness)
 
-What the collapse ADDED to this backlog, all of it unproven on metal:
+- [ ] Kiosk autologin works — `opilas` now created locked by the lab kickstart, autologin written by its role `%post`; neither has run.
+- [ ] Staff laptop stays inert: both kiosk units log as *skipped* (ExecCondition), no dconf lockdown, Bluetooth not blocked at boot.
+- [ ] Id map is exactly `admin` 1000 / `staff` 1001 / `opilas` 1002 on both roles.
+- [ ] `admin` absent from the greeter (`SystemAccount=true` via tmpfiles), and still absent after a reboot and an image update.
+- [ ] Prepended `XDG_DATA_DIRS` hides restricted launchers **without** losing flatpak app-grid entries.
+- [ ] App matrix: `staff` gets gnome-software only, `opilas` none, `admin` all — and gnome-software's `--gapplication-service` autostart fails quietly for `opilas`.
+- [ ] Staff flatpak install from gnome-software: no admin prompt, lands in **system** scope, `opilas` can launch it.
+- [ ] Student home reset fires and the baked flatpaks survive it.
+- [ ] Firefox + the baked flatpak set launch fully offline on first boot.
+- [ ] Stage-only `bootc upgrade --quiet`: old deployment keeps running, new one boots later.
+- [ ] `svk-flatpak-update.service` touches only `--system` and survives one simulated network failure.
 
-- `DCONF_PROFILE=kiosk` via `environment.d` must take effect **before** the
-  session's dconf is first read. If it doesn't, opilas silently gets an unlocked
-  desktop — a fail-OPEN mode, so check it first.
-- The prepended `XDG_DATA_DIRS` must shadow the restricted launchers **without**
-  costing the flatpak app-grid entries (flatpak's own user-environment generator
-  runs after systemd's `30-systemd-environment-d-generator` and appends its export
-  dirs — expected to compose, never verified).
-- The `svk-staff` group, the mode-0750 app matrix, and the flatpak polkit grant.
-- `opilas` created by the **kickstart** rather than `sysusers.d`, and GDM autologin
-  written by the kickstart's role `%post`.
-- Two ExecCondition-gated kiosk units that must be *skipped*, not *failed*, on a
-  staff laptop.
+## Medium (tooling and observability)
 
-Still worth doing early and independently: the end-to-end ISO build and the
-LUKS/TPM path, because a broken installer invalidates everything else.
+- [ ] mDNS resolution, admin SSH (key-only, `AllowGroups wheel`), hostname claim against the dispenser.
+- [ ] `systemctl list-timers`: both timers enabled with the expected `OnCalendar` / `RandomizedDelaySec`.
+- [ ] `ujust update-now`: both units start, one correct line in `/var/log/svk/update.log`, **no reboot**.
+- [ ] `ujust update-apply-now`: applies, reboots, and the log line is intact on the other side.
+- [ ] `ujust update-status` matches the log tail and `list-timers`.
+- [ ] Mid-update network failure logs a clear failed run, not silence.
+- [ ] Both services' journals survive a reboot (persistent journald drop-in).
+- [ ] `check-drift` is clean on an unmodified image, and catches a hand-edited `/etc` file.
+- [ ] `channel-status` / `toggle-channel` report and switch correctly, machine boots the other channel.
+- [ ] `luks-status` reports the TPM2 slot, and fails gracefully on an unencrypted dev build.
+- [ ] `powerwash` refuses on anything but an exact hostname match; `bootc install reset --experimental` still correct for the pinned bootc.
+- [ ] Run **every** ujust recipe as `admin` over real SSH — the `pkexec`→`sudo` swap is what's being tested.
 
-## 1. Installer — does an ISO produce a machine at all
+## Low
 
-- **End-to-end ISO build + install.** The 2026-07-21 on-hardware attempt failed
-  on `liveinst`'s "kickstart is not supported on live iso installs"; 685dc5b
-  added the automated `anaconda.target` GRUB entry to fix it. **That fix has
-  never been re-tested.** This is the gate on everything below.
-- **LUKS + TPM2 auto-unlock.** Confirm a TPM machine auto-unlocks on the reboot
-  after install, bound to PCR 7 only (`files/os/usr/libexec/svk/luks-tpm-enroll`
-  — deliberate, see `../done/20260726-2014-fde-tpm-and-install-path.md`, do not
-  "harden").
-- **Recovery key** is displayed on screen and actually works to unlock.
-- **The TPM capability probe** (`/usr/libexec/svk/tpm2-capable`) agrees with reality
-  on the emulated TPM and on each real machine model: it must exit 0 where
-  enrollment then succeeds, and non-zero where it would have failed. A probe that
-  wrongly reports "capable" reintroduces the boot-forever prompt it was added to
-  remove; one that wrongly reports "incapable" skips auto-unlock on a fine machine.
-  Verify `tpm2_getcap commands | grep 'commandIndex: 0x192'` really is present on
-  the school's hardware. Logic is unit-tested against stubs only.
-- **No-TPM machine**: the probe now names the reason on the console, stops
-  retrying, and keeps the per-install passphrase slot **unless** someone
-  acknowledged the recovery key. Confirm on a TPM-less (or firmware-TPM-disabled)
-  machine that: the banner is legible, the recovery key unlocks it, and the
-  documented interim (operator reads `/tmp/svk-luks-bootstrap` from the installer
-  console before reboot, or `/etc/svk/luks-bootstrap` afterwards) is workable — or
-  accept it as a known gap until the provisioning USB lands.
-- `just run-iso <flavor>` gives an emulated TPM 2.0 + UEFI, so the unlock path is
-  testable in a VM before touching a laptop. Use it first.
-
-## 2. Post-install identity and lockdown
-
-- Kiosk autologin works after install. NOTE: `opilas` is now created **locked, by
-  the lab kickstart** (not `sysusers.d`), and GDM autologin is written by that
-  kickstart's role `%post` — both moved in the collapse and neither has run.
-- **Account scoping holds.** On a staff laptop there is no `opilas`: the two kiosk
-  units must log as *skipped* (ExecCondition), the dconf lockdown must be absent,
-  and Bluetooth must not be blocked at boot. On a lab machine the lockdown must be
-  present. A machine with no `opilas` must never end up with an unlocked kiosk
-  profile — confirm inert, not absent.
-- **Per-account app matrix**: `staff` launches gnome-software but not
-  Terminal/Disks/System Monitor (and sees no icons for them); `opilas` launches
-  none of them; `admin` launches all. Confirm gnome-software's background
-  `--gapplication-service` autostart fails **quietly** for `opilas` (it is not
-  covered by the XDG_DATA_DIRS shadowing — that's XDG_CONFIG_DIRS territory).
-- **Staff flatpak install**: `staff` installs from gnome-software with no admin
-  password prompt, it lands in **system** scope, and `opilas` can launch it.
-- Student home reset fires and the **baked flatpaks survive it** (they are in
-  `/var/lib/flatpak`, system scope — this is the whole reason for that choice).
-- Firefox and the baked flatpak set are present and launchable **fully offline**
-  on first boot.
-- dconf lockdown db compiled and non-empty — now `/etc/dconf/db/kiosk`, not
-  `local` (the fleet-wide defaults stayed in `local`; the locks moved to their own
-  db so staff don't inherit them). A silently empty `kiosk` db means the kiosk is
-  not locked down at all and nothing currently reports that.
-- mDNS resolution, admin SSH (key-only, `AllowGroups wheel`), hostname claim
-  against the server's dispenser.
-- **The fleet id map is what it says**: `admin` 1000, `staff` 1001, `opilas` 1002,
-  identical on every machine. Check on both roles — the kickstart accounts are
-  created at install time and admin at first boot, so a pinning mistake shows up
-  as admin landing on some other id.
-- `admin` is **hidden from the greeter's user list**. At uid 1000 this is no
-  longer automatic (it is at/above `UID_MIN`), it comes from
-  `SystemAccount=true` in `/var/lib/AccountsService/users/admin`, written by
-  tmpfiles at boot. Confirm the file exists after first boot AND that admin is
-  genuinely absent from the login screen — and that it survives a reboot and an
-  image update.
-- **Open question surfaced during the collapse:** sysusers creates admin with a
-  LOCKED password, so "Not listed?" has nothing to authenticate against — decide
-  how an operator actually gets a local GUI session before relying on the
-  admin-only app matrix.
-
-## 3. Update cadence, tooling and logging (0cdaf5a — inspection-only)
-
-- `systemctl list-timers`: `bootc-fetch-apply-updates.timer` and
-  `svk-flatpak-update.timer` enabled with the expected per-flavor `OnCalendar` /
-  `RandomizedDelaySec`.
-- `systemctl cat bootc-fetch-apply-updates.service`: **no `--apply` on desktops**,
-  still `--apply` on server. This is the check that matters most — `--apply`
-  reboots the moment an update stages, which on a classroom machine means a
-  reboot mid-lesson.
-- Force a stage-only update (`bootc upgrade --quiet`): machine keeps running the
-  old deployment until a later reboot, then boots the new one.
-- `svk-flatpak-update.service` touches only `--system`, never a `--user` install,
-  and survives one simulated network failure via its `Restart=` policy.
-- `ujust update-now`: both units start, one correct line lands in
-  `/var/log/svk/update.log` (before/after version, exit 0, plausible duration),
-  **no reboot**.
-- `ujust update-apply-now`: applies and reboots; the log line for that run is
-  present and correct **on the other side of the reboot** (proves `/var/log/svk`
-  persistence rather than journald).
-- `ujust update-status` matches the log tail and `systemctl list-timers`.
-- Network failure mid-update logs a clear failed run (non-zero, no fabricated
-  before/after line) rather than no record at all.
-- `journalctl -u bootc-fetch-apply-updates.service` and `-u svk-flatpak-update.service`
-  survive a reboot (persistent journald drop-in took effect).
-
-## 4. The rest of the ujust surface (`custom/ujust/`)
-
-- `check-drift` on a freshly-built unmodified image reports **no** diffs (excludes
-  tuned correctly) — then hand-edit one file under `/etc` and confirm it appears.
-- `channel-status` reports the right channel/version/git-commit; `toggle-channel`
-  actually switches and the machine boots the other channel's image.
-- `luks-status` reports the TPM2 slot on an encrypted machine, and fails
-  gracefully (not confusingly) on an unencrypted dev build with no crypttab entry.
-- `device-info` / `bios-info` are useful and make **no network call**.
-- `powerwash` refuses on anything but an exact hostname match, and
-  `bootc install reset --experimental` is still the correct invocation for the
-  pinned bootc version.
-- `clean-flatpaks` behaves.
-- Run **every** recipe as `admin` over real SSH, not a local root shell — the
-  `pkexec`→`sudo` swap is the thing being tested.
-
-## 5. Two judgment calls from 0cdaf5a worth a second look
-
-- `just` was assumed to be in Fedora's own repos (no COPR needed). A wrong guess
-  fails loudly at build time, so CI has probably already settled this — confirm.
-- `/var/log/svk` was created `0750 root:root`, so every reader recipe needs
-  `sudo`. Reasonable, but it was an implementation-time default, not a decision
-  the spec pinned down.
+- [ ] `device-info` / `bios-info` are useful and make no network call.
+- [ ] `clean-flatpaks` behaves.
+- [ ] `just` really is in Fedora's repos (no COPR) — CI has probably settled this.
+- [ ] `/var/log/svk` at `0750 root:root` (so readers need `sudo`) was an implementation default, not a pinned decision.
 
 ## Note
 
-Section 3's `gnome-software`-on-staff question from the original cadence spec is
-**dead** — the single-image collapse answers it the other way round (staff get
-`gnome-software` by design, gated by group rather than removed). Do not re-open it
-from the archived spec.
+The old "should staff get gnome-software" question is **dead** — the collapse answers
+it yes, gated by group. Do not re-open it from the archived spec.
