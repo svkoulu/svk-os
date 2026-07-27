@@ -26,8 +26,10 @@ Client-side, nothing points at the school mirror. The chain is:
 
 So updates work on a staff laptop and quietly do nothing useful on a lab machine
 with no internet path — the exact case the mirror exists for. The server half is
-done and shipping (`files/server/etc/systemd/system/svk-flathub-sync.{service,timer}`,
-`files/server/usr/bin/svk-flathub-sync.py`).
+done and shipping — it now lives in the `../svk-server` repo
+(`files/server/etc/systemd/system/svk-flathub-sync.{service,timer}`,
+`files/server/usr/bin/svk-flathub-sync.py`). **This task is the client half only**,
+which stays here.
 
 `iso/README.md:211-217` documents this as "still TODO" and points at
 `archived/files/base/usr/bin/svk-flatpak-preinstall.sh` for the logic to reuse.

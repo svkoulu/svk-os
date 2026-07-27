@@ -1,10 +1,10 @@
-# svk — school bootc image factory
+# svk-os — school bootc desktop image factory
 
-Builds and signs **two bootc OCI images** for a small school IT fleet and
-publishes them to GHCR (`ghcr.io/svkoulu/...`). Machines are provisioned once from
-an installer ISO, then track their image via automatic `bootc` updates.
+Builds and signs the **bootc OCI desktop image** for a small school IT fleet and
+publishes it to GHCR (`ghcr.io/svkoulu/svk-os`). Machines are provisioned once from
+an installer ISO, then track the image via automatic `bootc` updates.
 
-These are *custom* images, so they do **not** inherit upstream security updates
+This is a *custom* image, so it does **not** inherit upstream security updates
 automatically — the base is pinned by digest. A **weekly CI rebuild** is what pulls
 in new kernels and fixes. If the pipeline silently breaks, the fleet silently stops
 getting updates — that risk drives the design (`bootc container lint` as the final
@@ -12,7 +12,7 @@ build layer, `fail-fast: false`, and a recommended failure notification).
 
 New here? Work through [`TODO.md`](TODO.md) for the one-time setup a human must do.
 
-## Image hierarchy
+## The image
 
 ```
 quay.io/fedora-ostree-desktops/silverblue     (raw Fedora Silverblue, pinned by digest)
@@ -20,11 +20,13 @@ quay.io/fedora-ostree-desktops/silverblue     (raw Fedora Silverblue, pinned by 
                     # Tailscale, mDNS, admin SSH, CLI tools, desktop defaults, power
                     # switching, certs, fwupd, ghcr mirror, cosign policy, AND the
                     # kiosk lockdown (autologin target, home reset, dconf/polkit).
-
-ghcr.io/ublue-os/ucore:stable
-  └── svk-server    # pull-through registry cache + hostname dispenser + curated
-                    # Flathub mirror + AdGuard Home DNS (independent; installed via Ignition)
 ```
+
+The **server** (`svk-server`: LAN registry cache, hostname dispenser, Flathub mirror,
+AdGuard Home DNS — built FROM uCore, installed via Ignition) moved to its own repo on
+2026-07-27: [`../svk-server`](../svk-server). It never shared build code with this
+image. The `svk-server.local` references still in `files/os/` are the **client** side
+— runtime LAN facts, not a build dependency.
 
 **One image, no flavors.** A lab machine and a staff laptop run the same bytes; the
 **installer** decides which accounts exist (`opilas` + `admin` vs `staff` + `admin`),
@@ -60,16 +62,14 @@ and the apps live in system scope (a student home-reset never loses them).
 ## Repo layout
 
 ```
-Containerfile.{os,server}                    # one manifest per image
-build/                                       # svk-os's numbered build scripts (dnf5, services, users, desktop)
-build.server.sh                              # the server image's build script
-files/{os,server}/                           # static trees COPY'd to image "/"
+Containerfile.os                             # the image manifest
+build/                                       # numbered build scripts (dnf5, services, users, desktop)
+files/os/                                    # static tree COPY'd to image "/"
 flatpaks/common.list                         # the flatpak set baked into the ISO
 iso/                                         # Titanoboa ISO pipeline (build-iso.sh, installer/)
-server.bu                                    # Butane for the uCore server's first install
 cosign.pub                                   # image-signing public key (private key is a repo secret)
 Justfile                                     # local build + setup commands (`just`)
-.github/workflows/build.yml                  # weekly / push / dispatch: builds both images
+.github/workflows/build.yml                  # weekly / push / dispatch: builds the image
 .github/workflows/iso.yml                    # the installer ISO (Titanoboa)
 archived/                                    # the previous FROM-bluefin implementation, for reference
 ```
@@ -80,10 +80,9 @@ archived/                                    # the previous FROM-bluefin impleme
 
 | Tool | Used for |
 |---|---|
-| `podman` | building every image |
+| `podman` | building the image |
 | `just` | the build/setup recipes (run `just` to list them) |
 | `cosign` | `just cosign-keygen` (generate the signing keypair) |
-| `butane` | `just server-ign` (compile the uCore Ignition config) |
 | `ShellCheck` | `just lint` (optional; lints the build scripts) |
 | `git` | `just iso` (clones the pinned Titanoboa) |
 | `rsync` | `just iso` (copies the Titanoboa clone into `iso/.build/`) |
@@ -91,10 +90,10 @@ archived/                                    # the previous FROM-bluefin impleme
 `bootc` itself does **not** need to be installed on the host — it ships in the
 base image, so the in-build `bootc container lint` just works.
 
-Install on Fedora: `sudo dnf install podman just cosign butane ShellCheck git rsync`.
-On openSUSE Tumbleweed: `sudo zypper install podman just cosign butane ShellCheck git rsync`.
-On Debian/Ubuntu `just`/`butane`/`cosign` aren't in the default repos — see each
-project's releases page (`butane` and `cosign` ship static binaries).
+Install on Fedora: `sudo dnf install podman just cosign ShellCheck git rsync`.
+On openSUSE Tumbleweed: `sudo zypper install podman just cosign ShellCheck git rsync`.
+On Debian/Ubuntu `just`/`cosign` aren't in the default repos — see each
+project's releases page (`cosign` ships a static binary).
 
 Building an **ISO** (`just iso`) has two extra requirements beyond the table
 above — see `iso/README.md` for the full list.
@@ -104,11 +103,9 @@ and plenty of disk — it's heavy; prefer the `iso` CI workflow (see below).
 
 ```bash
 just build-os                   # the desktop image
-just build-server               # the uCore server image (independent)
-just build-all                  # both — no ordering needed
 ```
 
-CI builds the same images via `.github/workflows/build.yml` (which uses a composite
+CI builds the same image via `.github/workflows/build.yml` (which uses a composite
 action, not this Justfile) and cosign-signs each with the `COSIGN_PRIVATE_KEY`
 secret.
 
@@ -160,12 +157,8 @@ Two channels, ublue-style:
 
 The version (`stable-N-YYYYMMDD` / `testing-YYYYMMDD`) is identical across the image tag, os-release `IMAGE_VERSION`, the `org.opencontainers.image.version` label, `/usr/share/svk-os/image-info.json`, and the ISO filename. It's also folded into os-release `PRETTY_NAME` (e.g. `SVK OS (testing-20260719)`) and the ISO's GRUB boot-menu entry, since PRETTY_NAME is the one field the Anaconda WebUI installer and GNOME's About page actually display.
 
-**Server** — uCore installs via Ignition, not an ISO:
-
-```bash
-just server-ign                 # compiles server.bu (+ secrets/) -> server.ign
-coreos-installer install /dev/sdX --ignition-file server.ign
-```
+**Server** — see [`../svk-server`](../svk-server); uCore installs via Ignition, not
+an ISO.
 
 Provisioning specifics — Tailscale enrolment (USB-delivered auth key), the hostname
 dispenser, and the admin/jump-host SSH flow — are covered in

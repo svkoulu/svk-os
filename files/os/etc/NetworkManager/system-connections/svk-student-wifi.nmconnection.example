@@ -4,8 +4,7 @@
 # actions (see that file), so this profile has no competition.
 #
 # THIS IS A TEMPLATE, not the real file: it holds the school's Wi-Fi SSID and
-# PSK, which are real secrets and must NOT be committed to git (same reasoning
-# as secrets/ — see secrets/README.md and .gitignore).
+# PSK, which are real secrets and must NOT be committed to git — see .gitignore.
 #
 # To provision:
 #   cp files/student/etc/NetworkManager/system-connections/svk-student-wifi.nmconnection.example \

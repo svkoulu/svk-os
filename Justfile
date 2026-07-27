@@ -25,15 +25,6 @@ default:
 build-os:
     {{ podman }} build -f Containerfile.os --build-arg VERSION={{ version }} --build-arg GIT_SHA={{ git_sha }} -t svk-os .
 
-# Build the uCore server image (independent of svk-os).
-[group('build')]
-build-server:
-    {{ podman }} build -f Containerfile.server --build-arg VERSION={{ version }} --build-arg GIT_SHA={{ git_sha }} -t svk-server .
-
-# Build both images (they're independent — no ordering needed).
-[group('build')]
-build-all: build-os build-server
-
 # Build THE installer ISO with Titanoboa. One ISO for the whole fleet: the role
 # (lab / staff) is picked from the GRUB menu at boot, not chosen here.
 # repo=local|ghcr  channel=stable|testing (only meaningful for repo=ghcr; stable
@@ -81,21 +72,6 @@ cosign-keygen:
     cosign generate-key-pair
     echo "Done. Commit cosign.pub; add cosign.key -> COSIGN_PRIVATE_KEY secret."
 
-# Generate the server's outbound SSH key into secrets/ (idempotent). Its .pub must
-# be the svk-server line in files/os/etc/ssh/authorized_keys.d/admin.
-[group('setup')]
-bootstrap-secrets:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    mkdir -p secrets
-    if [ ! -f secrets/id_ed25519 ]; then
-        ssh-keygen -t ed25519 -C svk-server -N '' -f secrets/id_ed25519
-        echo ">> Put secrets/id_ed25519.pub as the svk-server line in files/os/etc/ssh/authorized_keys.d/admin"
-    else
-        echo "secrets/id_ed25519 already exists."
-    fi
-    [ -f secrets/tailscale-authkey ] || echo ">> TODO: create secrets/tailscale-authkey (server pre-auth key) — see secrets/README.md"
-
 # Copy the lab Wi-Fi profile template to its real (gitignored) path to fill in.
 [group('setup')]
 wifi-profile:
@@ -107,18 +83,11 @@ wifi-profile:
     cp "$real.example" "$real"
     echo ">> Created $real (gitignored). Fill in SSID/PSK, then build svk-os."
 
-# Compile server.bu (+ secrets/) into server.ign for the uCore install (gitignored).
-[group('setup')]
-server-ign:
-    butane --pretty --strict --files-dir . server.bu > server.ign
-    @echo ">> Wrote server.ign (holds secrets in cleartext — gitignored)."
-    @echo "   Install: coreos-installer install /dev/sdX --ignition-file server.ign"
-
 # List any remaining <<PLACEHOLDER>> markers to fill before building.
 [group('setup')]
 placeholders:
     @grep -rn '<<' --include='*.sh' --include='Containerfile*' --include='*.conf' \
-        --include='*.json' --include='*.yaml' --include='*.bu' --include='*.list' \
+        --include='*.json' --include='*.yaml' --include='*.list' \
         --include='*.nmconnection*' . | grep -v '/archived/' || echo "No placeholders left."
 
 # ── Utility ─────────────────────────────────────────────────────────────────
@@ -126,12 +95,12 @@ placeholders:
 # Shellcheck the build scripts.
 [group('utility')]
 lint:
-    shellcheck build/*.sh build.*.sh iso/*.sh iso/installer/build.sh
+    shellcheck build/*.sh iso/*.sh iso/installer/build.sh
 
-# Remove locally-built svk images.
+# Remove the locally-built svk-os image.
 [group('utility')]
 clean:
-    -{{ podman }} rmi svk-os svk-server
+    -{{ podman }} rmi svk-os
 
 # Check Justfile formatting.
 [group('utility')]

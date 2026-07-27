@@ -13,7 +13,9 @@ not `FROM bluefin`; ISOs bake flatpaks offline via Titanoboa). Items marked
       (2026-07-27). One image for lab machines and staff laptops; the installer
       decides which accounts exist. **Needs a fresh local build + on-hardware
       re-validation** — see `tasks/done/…-single-image-collapse.md`.
-- [x] `svk-server` restored unchanged (uCore); CI verifies.
+- [x] `svk-server` **split into its own repo** (`../svk-server`, 2026-07-27) —
+      server code, `server.bu`, `secrets/` and its build all moved there. Its
+      remaining setup steps live in that repo's `TODO.md`.
 - [x] CI (`build.yml`) adapted; merged to `main`.
 - [ ] **Confirm the first CI build on `main` is green** (Actions tab). Watch-item:
       the runner's podman must support `RUN --mount=type=bind,from=stage` +
@@ -23,7 +25,7 @@ not `FROM bluefin`; ISOs bake flatpaks offline via Titanoboa). Items marked
       **testing** channel (`:testing` + `:latest` + `:testing-YYYYMMDD`); the fleet's
       **stable** channel (`:stable` + `:stable-N` + `:stable-N-YYYYMMDD`) appears only
       after you cut the first **git tag** (e.g. `git tag 1 && git push --tags`).
-      Confirm `svk-os` and `svk-server` show the tags.
+      Confirm `svk-os` shows the tags.
 - [ ] **`svk-base` / `svk-student` / `svk-staff` are no longer published.** Any
       machine already installed from them must be moved over:
       `sudo bootc switch --enforce-container-sigpolicy ghcr.io/svkoulu/svk-os:stable`.
@@ -87,9 +89,9 @@ flatpaks + live-boot support, instead of Titanoboa injecting a hook).
 
 - [ ] `<<STUDENT_WIFI_SSID>>` / `<<STUDENT_WIFI_PSK>>`: `just wifi-profile`, then
       fill the real (gitignored) `.nmconnection` before building `svk-os`.
-- [ ] `secrets/id_ed25519` (server outbound SSH key) + `secrets/tailscale-authkey`
-      (server pre-auth key): `just bootstrap-secrets` handles the SSH key; create
-      the tailscale key by hand. See `secrets/README.md`.
+- [ ] Server secrets (outbound SSH key, tailscale pre-auth key) → moved to
+      `../svk-server/TODO.md`. The SSH key's `.pub` half must still match the
+      `svk-server` line in `files/os/etc/ssh/authorized_keys.d/admin`.
 - [x] `<<GHCR_NAMESPACE>>` → `svkoulu`; `<<REGISTRY_CACHE_HOST>>` →
       `svk-server.local`; `<<ADMIN_SSH_PUBLIC_KEY>>`; `<<NEXTDNS_PROFILE_ID>>` — set.
 - [ ] Optional: school packages in `build/10-packages.sh` (`<<ADD ... HERE>>`),
@@ -108,13 +110,7 @@ flatpaks + live-boot support, instead of Titanoboa injecting a hook).
 
 ## 5. Server first install (uCore / Ignition)
 
-- [ ] `just server-ign` → `coreos-installer install /dev/sdX --ignition-file server.ign`.
-- [ ] Provision the 1TB NVMe, mount at `/var/mnt/registry-cache`.
-- [ ] Verify: registry cache (`registry.service` + a cached pull through
-      `svk-server:5000`), Cockpit + Tailscale (`tag:svk-admin`), Flathub mirror
-      (`svk-flathub-sync.service`; `journalctl -u svk-flathub-sync` for the curated
-      count), AdGuard Home (`http://svk-server.local:3000` — **set a real admin
-      password**; seeded config ships an open dashboard).
+Moved with the code — see [`../svk-server/TODO.md`](../svk-server/TODO.md).
 
 ## 6. Tailscale, hostnames, data-volume lists
 
@@ -125,13 +121,10 @@ flatpaks + live-boot support, instead of Titanoboa injecting a hook).
       image's own default is now the neutral `tag:svk-node` with enrolment off, so
       the USB is only consumed on machines opted in by hand (or, later, by the USB
       provisioning config).
-- [x] Hostname pool defined (`/var/lib/svk/hostname-pool`).
-- [ ] Flathub curation overrides (`/var/lib/svk/flathub-{allow,block}list`) — only
-      if the automatic filters aren't enough; most schools won't need them.
-- [ ] Real DHCP scopes → replace the placeholder CIDRs in AdGuard's
-      `clients.persistent` so per-client (lab/staff) filtering takes effect. Note the
-      image now ships ONE NextDNS profile fleet-wide (the stricter former student
-      one) — per-machine DNS moves to the USB provisioning config.
+- [ ] Server-side lists (hostname pool, Flathub curation overrides, AdGuard DHCP
+      scopes) → `../svk-server/TODO.md`. Note the image now ships ONE NextDNS
+      profile fleet-wide (the stricter former student one) — per-machine DNS moves
+      to the USB provisioning config.
 
 ## 7. First fleet machine — smoke test (before rolling out all ~19)
 

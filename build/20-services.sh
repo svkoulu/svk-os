@@ -18,8 +18,8 @@ systemctl enable svk-claim-hostname.service
 # unencrypted installs (ConditionPathExists guards it); self-disables once enrolled.
 systemctl enable svk-luks-tpm-enroll.service
 # Image + flatpak auto-update. bootc-fetch-apply-updates.timer ships DISABLED
-# upstream (opt-in), so enable it explicitly — same as build.server.sh does for
-# svk-server. The weekly schedule and the ExecStart= override that drops --apply
+# upstream (opt-in), so enable it explicitly — the server image (../svk-server)
+# does the same. The weekly schedule and the ExecStart= override that drops --apply
 # both come from files/os drop-ins next to each other.
 systemctl enable bootc-fetch-apply-updates.timer
 systemctl enable svk-flatpak-update.timer

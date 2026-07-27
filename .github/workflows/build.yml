@@ -1,6 +1,6 @@
-# Builds, signs and publishes the two fleet images to GHCR, on two channels.
+# Builds, signs and publishes the svk-os fleet image to GHCR, on two channels.
 #
-# Why weekly: these are CUSTOM bootc images, so they do NOT inherit upstream updates
+# Why weekly: this is a CUSTOM bootc image, so it does NOT inherit upstream updates
 # automatically. The scheduled rebuild is how new kernels and security fixes reach
 # the fleet. If this pipeline silently stops, machines silently stop getting security
 # updates — see the "Fail loudly" note in the README for wiring a failure alert.
@@ -13,7 +13,8 @@
 #                    is when it's actually being worked on — a cron copy adds nothing.
 #   - dispatch     -> both | stable | testing (input)
 # This `setup` job decides which channel(s) to build and their refs; the two calls
-# below run the reusable workflow accordingly.
+# below run the reusable workflow accordingly. (svk-server has its own repo +
+# workflow since 2026-07-27 — ../svk-server.)
 name: build
 
 on:
@@ -125,9 +126,9 @@ jobs:
     secrets: inherit
 
   # ---- Installer ISOs: rebuilt on every push (main -> testing, tag -> stable),
-  # after that channel's images land in GHCR (the ISO pulls svk-<flavor>:<channel>).
+  # after that channel's image lands in GHCR (the ISO pulls svk-os:<channel>).
   # Restricted to push events so the weekly cron and manual dispatch only refresh the
-  # images, not the slow, large ISOs — run those on demand via iso.yml directly. ----
+  # image, not the slow, large ISOs — run those on demand via iso.yml directly. ----
   stable-iso:
     needs: [setup, stable]
     if: needs.setup.outputs.do_stable == 'true' && github.event_name == 'push'

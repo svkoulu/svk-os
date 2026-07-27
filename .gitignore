@@ -2,16 +2,6 @@
 cosign.key
 *.key
 
-# Compiled Ignition (contains the Tailscale key + the server's SSH private key).
-*.ign
-
-# Provisioning secrets, injected at compile time by `butane --files-dir .`.
-# The real files live here locally and never get committed; only the README and
-# the *.example templates are tracked.
-secrets/*
-!secrets/README.md
-!secrets/*.example
-
 # Local ISO / build output.
 output/
 *.iso
@@ -20,7 +10,6 @@ iso/.build/
 # secret, but a build output — belongs in the CI artifact, not in git.
 iso/*.build-info.json
 
-# The real lab Wi-Fi connection profile holds a plaintext PSK — same
-# secrets-stay-local rule as everything under secrets/. Only the .example
-# template (with placeholder SSID/PSK) is tracked.
+# The real lab Wi-Fi connection profile holds a plaintext PSK — it stays local,
+# never in git. Only the .example template (with placeholder SSID/PSK) is tracked.
 files/os/etc/NetworkManager/system-connections/*.nmconnection

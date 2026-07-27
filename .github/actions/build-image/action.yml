@@ -1,9 +1,9 @@
 # Composite action: lint (via the build), build, push and cosign-sign one image.
-# Factored out so every image shares ONE copy of the signing logic — a drifted
-# signing step is exactly the kind of silent breakage this repo is trying to avoid.
+# Kept factored out even though there is one image left: ../svk-server carries its
+# own copy of this action, and a drifted signing step is exactly the kind of silent
+# breakage this project is trying to avoid.
 #
-# Channel/tag scheme (channel + major + date come from the caller so both images
-# agree on one date):
+# Channel/tag scheme (channel + major + date come from the caller):
 #   stable  -> :stable, :stable-<N>, :stable-<N>-<date>   version stable-<N>-<date>
 #   testing -> :testing, :latest,    :testing-<date>      version testing-<date>
 # The version string is baked into os-release + the image.version label, so tag /
@@ -13,7 +13,7 @@ description: Build, push and cosign-sign a bootc image with matching channel/ver
 
 inputs:
   image:
-    description: Image short name (svk-os, svk-server).
+    description: Image short name (svk-os).
     required: true
   containerfile:
     description: Path to the Containerfile.
@@ -45,7 +45,7 @@ inputs:
     required: false
     default: ""
   date:
-    description: Build date YYYYMMDD, computed once by the caller so both images agree.
+    description: Build date YYYYMMDD, computed once by the caller.
     required: true
 
 runs:

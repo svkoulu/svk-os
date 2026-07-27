@@ -147,6 +147,7 @@ Two things to fix, both small:
   `FROM ghcr.io/ublue-os/ucore:stable` — a floating tag, unlike the Silverblue
   base. `svk-server` therefore has neither reproducibility nor Renovate
   visibility, and can change under CI without any commit. Pin it by digest.
+  *(Moved out of this repo on 2026-07-27 — do it in `../svk-server`.)*
 
 Interaction with item 5: automerged digest bumps mean unattended changes to what
 gets built, which is the argument for verifying the upstream signature too.

@@ -1,11 +1,11 @@
-# Reusable: build + sign + push both fleet images for ONE channel from ONE ref.
+# Reusable: build + sign + push the fleet image for ONE channel from ONE ref.
 # Called by build.yml once per channel (stable and/or testing) so a single run can
-# publish both channels without duplicating the desktop + server fan-out.
+# publish both channels without duplicating the build steps.
 #
-# The two images are INDEPENDENT — svk-os is raw Silverblue, svk-server is uCore —
-# so they build in parallel with no `needs:` between them. There is no svk-base and
-# no BASE_IMAGE plumbing any more: the two desktop flavors it existed to share code
-# with were collapsed into svk-os itself
+# One image only: svk-server moved to its own repo (../svk-server, 2026-07-27) —
+# it was FROM uCore and shared no build code with this one. There is no svk-base
+# and no BASE_IMAGE plumbing either: the two desktop flavors it existed to share
+# code with were collapsed into svk-os itself
 # (tasks/done/…-single-image-collapse.md).
 #
 # Signing stays keyed + pinned to the Cosign v2 line: the v4 installer defaults to
@@ -37,7 +37,7 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  # GHCR namespace that owns the images. Must match cosign.pub's owner.
+  # GHCR namespace that owns the image. Must match cosign.pub's owner.
   NAMESPACE: svkoulu
 
 permissions:
@@ -48,13 +48,11 @@ jobs:
   build:
     runs-on: ubuntu-latest
     strategy:
-      fail-fast: false          # a broken desktop build shouldn't hide the server's
+      fail-fast: false
       matrix:
         include:
           - image: svk-os       # every lab machine and staff laptop
             containerfile: Containerfile.os
-          - image: svk-server   # independent branch (FROM uCore)
-            containerfile: Containerfile.server
     steps:
       - uses: actions/checkout@v7
         with:
