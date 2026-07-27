@@ -47,12 +47,24 @@ LUKS/TPM path, because a broken installer invalidates everything else.
   added the automated `anaconda.target` GRUB entry to fix it. **That fix has
   never been re-tested.** This is the gate on everything below.
 - **LUKS + TPM2 auto-unlock.** Confirm a TPM machine auto-unlocks on the reboot
-  after install, bound to PCR 7 only (`files/base/usr/libexec/svk/luks-tpm-enroll:71`
-  — deliberate, see `20260726-2014-fde-tpm-and-install-path.md`, do not "harden").
+  after install, bound to PCR 7 only (`files/os/usr/libexec/svk/luks-tpm-enroll`
+  — deliberate, see `../done/20260726-2014-fde-tpm-and-install-path.md`, do not
+  "harden").
 - **Recovery key** is displayed on screen and actually works to unlock.
-- **No-TPM machine**: confirm the documented interim (operator reads
-  `/tmp/svk-luks-bootstrap` from the installer console before reboot) is workable,
-  or accept it as a known gap until the provisioning USB lands.
+- **The TPM capability probe** (`/usr/libexec/svk/tpm2-capable`) agrees with reality
+  on the emulated TPM and on each real machine model: it must exit 0 where
+  enrollment then succeeds, and non-zero where it would have failed. A probe that
+  wrongly reports "capable" reintroduces the boot-forever prompt it was added to
+  remove; one that wrongly reports "incapable" skips auto-unlock on a fine machine.
+  Verify `tpm2_getcap commands | grep 'commandIndex: 0x192'` really is present on
+  the school's hardware. Logic is unit-tested against stubs only.
+- **No-TPM machine**: the probe now names the reason on the console, stops
+  retrying, and keeps the per-install passphrase slot **unless** someone
+  acknowledged the recovery key. Confirm on a TPM-less (or firmware-TPM-disabled)
+  machine that: the banner is legible, the recovery key unlocks it, and the
+  documented interim (operator reads `/tmp/svk-luks-bootstrap` from the installer
+  console before reboot, or `/etc/svk/luks-bootstrap` afterwards) is workable — or
+  accept it as a known gap until the provisioning USB lands.
 - `just run-iso <flavor>` gives an emulated TPM 2.0 + UEFI, so the unlock path is
   testable in a VM before touching a laptop. Use it first.
 

@@ -1,0 +1,48 @@
+#!/usr/bin/bash
+# tpm2-capable — decide UP FRONT whether this machine's TPM can hold a LUKS
+# enrollment, instead of discovering it by having `systemd-cryptenroll` fail.
+#
+# Ported from Aeon's installer (../aeon-os/tik-upstream/usr/lib/tik/modules/pre/
+# 15-encrypt, `verify_tpm`). The point is the SECOND check: a TPM 2.0 older than
+# v1.38 lacks the `PolicyAuthorizeNV` command, and systemd's TPM2 enrollment needs
+# it. Such a chip is present, responds, has /dev/tpmrm0 — and still cannot be
+# enrolled. Probing for the command is the only way to know before trying.
+#
+# Used by BOTH ends of the install:
+#   - iso/installer/build.sh -> svk-luks-tpm.ks   (install-time %post, in the chroot)
+#   - /usr/libexec/svk/luks-tpm-enroll            (first boot)
+# so the two agree on what "no usable TPM" means and both say so out loud.
+#
+# Contract: prints a one-line human-readable reason on stdout, and exits
+#   0 — usable: enroll the TPM2 (default mode)
+#   1 — no TPM 2.0 (or no kernel resource manager for it)
+#   2 — TPM 2.0 present but too old to enroll (no PolicyAuthorizeNV)
+#   3 — TPM 2.0 present but did not answer the capability query
+# Any non-zero exit means FALLBACK: this disk will need a human secret at boot.
+set -uo pipefail
+
+# systemd's `--tpm2-device=auto` uses the kernel resource manager (/dev/tpmrm*).
+# A machine with only /dev/tpm0 and no tpmrm0 is a TPM 1.2 (or a kernel without
+# the tpm_crb/tpm_tis resource manager) and cannot be enrolled at all — treat it
+# as absent rather than trying and failing.
+if [ ! -c /dev/tpmrm0 ]; then
+    if [ -e /dev/tpm0 ]; then
+        echo "no usable TPM 2.0: found /dev/tpm0 but no /dev/tpmrm0 (TPM 1.2, or no kernel resource manager)"
+    else
+        echo "no TPM 2.0 chip found (/dev/tpmrm0 absent)"
+    fi
+    exit 1
+fi
+
+# Command index 0x192 = PolicyAuthorizeNV, absent on TPMs older than v1.38.
+caps="$(tpm2_getcap commands 2>/dev/null)" || {
+    echo "TPM 2.0 found at /dev/tpmrm0 but 'tpm2_getcap commands' failed (chip busy or in a bad state)"
+    exit 3
+}
+if grep -q 'commandIndex: 0x192' <<<"$caps"; then
+    echo "TPM 2.0 found at /dev/tpmrm0 with PolicyAuthorizeNV support"
+    exit 0
+fi
+
+echo "TPM 2.0 found at /dev/tpmrm0 but it lacks PolicyAuthorizeNV (chip older than v1.38)"
+exit 2

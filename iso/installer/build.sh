@@ -460,18 +460,35 @@ EOF
 # nothing has to be quoted/escaped here. Best-effort: a machine with no TPM (or a
 # failed enrollment) falls back to the first-boot service, which enrolls a per-machine
 # recovery key — the operator captures the one-time passphrase from the installer
-# console (see %pre note) to get that first boot to run. PCR 7 (secure-boot state) is
-# identical in the installer and the installed system on the same machine; PCRs 4/8/9
-# are NOT, so bind only PCR 7.
+# console (see %pre note) to get that first boot to run.
+#
+# PCR 7 (Secure Boot state) is identical in the installer and the installed system on
+# the same machine; PCRs 4/8/9 are NOT, so bind only PCR 7. That is also svk's
+# fleet-wide policy and deliberately looser than Aeon's — do not add PCRs here
+# without reading §1 of tasks/done/20260726-2014-fde-tpm-and-install-path.md.
+#
+# The capability probe (shipped in the image, shared with the first-boot service) runs
+# before we commit: a TPM 2.0 older than v1.38 has a /dev/tpmrm0 and still cannot be
+# enrolled, so checking for the device alone would just produce a confusing failure
+# here and an unexplained passphrase prompt on the deployed machine.
 tee /usr/share/anaconda/post-scripts/svk-luks-tpm.ks <<'EOF'
 %post --erroronfail
-if { [ -e /dev/tpmrm0 ] || [ -e /dev/tpm0 ]; } && [ -f /etc/svk/luks-bootstrap ]; then
-    _uuid="$(awk '!/^#/ && NF {print $2; exit}' /etc/crypttab | sed 's/^UUID=//')"
-    _dev="/dev/disk/by-uuid/${_uuid}"
-    if [ -n "$_uuid" ] && [ -e "$_dev" ]; then
-        PASSWORD="$(cat /etc/svk/luks-bootstrap)" \
-            systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=7 "$_dev" \
-            || echo "svk: install-time TPM2 enrollment failed; first boot will retry."
+if [ -f /etc/svk/luks-bootstrap ]; then
+    if _probe="$(/usr/libexec/svk/tpm2-capable)"; then
+        echo "svk: TPM2 probe: ${_probe}"
+        _uuid="$(awk '!/^#/ && NF {print $2; exit}' /etc/crypttab | sed 's/^UUID=//')"
+        _dev="/dev/disk/by-uuid/${_uuid}"
+        if [ -n "$_uuid" ] && [ -e "$_dev" ]; then
+            PASSWORD="$(cat /etc/svk/luks-bootstrap)" \
+                systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=7 "$_dev" \
+                || echo "svk: install-time TPM2 enrollment failed; first boot will retry."
+        fi
+    else
+        # Not a failure of the install — this machine simply cannot auto-unlock. The
+        # first-boot service re-probes, says so on the console next to the recovery
+        # key, and stops retrying instead of prompting forever.
+        echo "svk: skipping TPM2 enrollment: ${_probe}"
+        echo "svk: this machine will need the recovery key at every boot."
     fi
 fi
 %end

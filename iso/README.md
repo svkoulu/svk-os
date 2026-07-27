@@ -25,6 +25,7 @@ Titanoboa's own interface changed upstream.
 | `iso/installer/build.sh` | installs Anaconda (+`tmux`, needed by `anaconda.service`) and the on-site repair kit, writes **both role kickstarts** (localization + auto-partition + LUKS, `bootc switch`es the origin to the signed registry ref, rsyncs the baked `/var/lib/flatpak` onto the target — **no Secure Boot enrollment**, N4), pre-installs the flatpak set into `/var/lib/flatpak`, adds `dracut-live`/`livesys-scripts` for live-boot, and writes `iso.yaml` |
 | `iso/build-iso.sh` | wrapper: get `svk-os` into root's podman storage, build the installer image, run pinned Titanoboa against it, collect the ISO |
 | `files/os/usr/libexec/svk/luks-tpm-enroll` (+ `.service`) | first-boot: TPM2 auto-unlock enrollment + on-screen per-machine recovery key (shipped in the OS image, not the ISO) |
+| `files/os/usr/libexec/svk/tpm2-capable` | the TPM2 capability probe both the install-time `%post` and the first-boot service gate on (device **and** `PolicyAuthorizeNV`) |
 | `.github/workflows/iso.yml` | the ISO build — reusable (called by `build.yml` per channel) and `workflow_dispatch` |
 
 ## Dependencies
@@ -180,14 +181,31 @@ base image):
 
 It self-disables afterwards and is a no-op on unencrypted (dev/local) installs.
 
-**No-TPM machines.** With no shared passphrase to print, the fallback for a machine
-that can't enroll a TPM (so first boot stops at the disk-unlock prompt) is:
-attended, capture the one-time per-install passphrase from the installer console
-**before the auto-reboot** — switch to a VT with `Ctrl+Alt+F2` and run
-`cat /tmp/svk-luks-bootstrap`. The proper fix is the **USB provisioning config**
-(`tasks/todo/20260719-0110-usb-provisioning-config.md`), which will write the
-per-machine passphrase to the physically-controlled SVK-PROV USB instead. On
-target hardware (TPM 2.0 standard), this path is not normally hit.
+Both ends run the same capability probe first —
+`/usr/libexec/svk/tpm2-capable`, shipped in the image and called by the kickstart
+`%post` *and* the first-boot service. It checks for `/dev/tpmrm0` **and** for the
+`PolicyAuthorizeNV` command (`tpm2_getcap`, command index `0x192`), which TPM 2.0
+chips older than v1.38 lack: such a chip has a device node and still cannot hold a
+systemd enrollment. Probing means an unenrollable machine is *named as such on the
+console* instead of being discovered as a mystery passphrase prompt weeks later.
+Ported from Aeon's `tik` installer.
+
+**No-TPM machines.** When the probe says the TPM can never be enrolled, retrying is
+pointless, so the first-boot service stops rather than prompting forever, and the
+**recovery key becomes the every-boot secret** — the banner says so explicitly, and
+reports Secure Boot state (worth enabling on a machine that can't seal its key to a
+TPM). The per-install passphrase slot is wiped **only if someone pressed ENTER** to
+acknowledge the key; on an unattended install it is deliberately kept, since wiping
+it would leave a disk whose only secret nobody wrote down. The service logs the
+exact `systemd-cryptenroll --wipe-slot=password` command to finish the job by hand.
+
+If you need that per-install passphrase (e.g. the machine rebooted before the key
+was recorded), capture it from the installer console **before the auto-reboot** —
+switch to a VT with `Ctrl+Alt+F2` and run `cat /tmp/svk-luks-bootstrap` — or read it
+from `/etc/svk/luks-bootstrap` on the running machine. The proper fix is the **USB
+provisioning config** (`tasks/todo/20260719-0110-usb-provisioning-config.md`), which
+will write the per-machine passphrase to the physically-controlled SVK-PROV USB
+instead. On target hardware (TPM 2.0 standard), this path is not normally hit.
 
 ⚠️ **Not yet validated on hardware** — confirm a TPM machine auto-unlocks (test it in
 a VM with an emulated TPM first: `just run-iso`, see below). If it still prompts

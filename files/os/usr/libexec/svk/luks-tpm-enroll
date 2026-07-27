@@ -22,6 +22,17 @@
 # non-encrypted (dev/local) installs and on every boot after the first, so the
 # unit's ConditionPathExists makes this a cheap no-op thereafter.
 #
+# Three outcomes, decided by /usr/libexec/svk/tpm2-capable rather than by letting
+# the enrollment fail:
+#
+#   TPM usable, enrolled      -> wipe the bootstrap slot; disk auto-unlocks, the
+#                                recovery key is the backup. Service disabled.
+#   TPM usable, enroll failed -> unexpected: keep the bootstrap slot, retry next
+#                                boot.
+#   TPM not usable            -> permanent (no chip, or a chip too old); retrying
+#                                can never succeed, so stop and tell the operator
+#                                the recovery key is now the every-boot secret.
+#
 # NOTE (validate on real hardware): TPM2 auto-unlock relies on systemd-cryptsetup
 # honouring `tpm2-device=auto` in /etc/crypttab. If a machine still prompts for the
 # recovery key every boot, the initramfs isn't reading this crypttab — the fix is
@@ -35,6 +46,20 @@ SERVICE=svk-luks-tpm-enroll.service
 
 log()  { echo "luks-tpm-enroll: $*"; }
 done_disable() { systemctl disable "$SERVICE" >/dev/null 2>&1 || true; }
+
+# Secure Boot state, reported only in the no-usable-TPM warning below (tik does the
+# same via `mokutil --sb-state`; svk doesn't ship mokutil, and the EFI variable is
+# the same source of truth). Byte 5 of the variable — after the 4-byte attribute
+# prefix — is 1 when Secure Boot is on.
+SB_VAR=/sys/firmware/efi/efivars/SecureBoot-8be4df61-93ca-11d2-aa0d-00e098032b8c
+sb_state() {
+    [ -r "$SB_VAR" ] || { echo unknown; return; }
+    case "$(od -An -tu1 -j4 -N1 "$SB_VAR" 2>/dev/null | tr -d '[:space:]')" in
+        1) echo enabled ;;
+        0) echo disabled ;;
+        *) echo unknown ;;
+    esac
+}
 
 # No bootstrap file => non-encrypted install or already enrolled: nothing to do.
 if [ ! -f "$BOOTSTRAP" ]; then
@@ -62,17 +87,38 @@ pass="$(cat "$BOOTSTRAP")"
 log "enrolling a recovery key..."
 recovery="$(PASSWORD="$pass" systemd-cryptenroll --recovery-key "$dev")"
 
-# 2. TPM2 for automatic unlock (PCR 7 = firmware/secure-boot state). Normally the
-#    install-time %post already enrolled it — detect that so we don't stack a second
-#    slot, and only enroll here as the fallback (no TPM at install, or it failed).
-tpm_ok=1
+# 2. TPM2 for automatic unlock. Normally the install-time %post already enrolled it
+#    — detect that so we don't stack a second slot, and only enroll here as the
+#    fallback (no TPM at install, or it failed).
+#
+#    PCR 7 ONLY (Secure Boot state and keys). This is deliberate — do NOT "harden"
+#    it by binding more PCRs. PCR 0/1 change on every firmware update or BIOS
+#    toggle; 4/5/9 change on every bootloader or kernel/initrd update; each one is
+#    another way for a machine to strand itself at a recovery prompt after a routine
+#    update. On mixed school hardware that costs more than it buys, so svk's policy
+#    is deliberately looser than Aeon's 4,5,7,9. See §1 of
+#    tasks/done/20260726-2014-fde-tpm-and-install-path.md.
+tpm_ok=0
+tpm_capable=1          # until the probe says otherwise
+tpm_reason=""
 if systemd-cryptenroll "$dev" 2>/dev/null | grep -qiw tpm2; then
+    tpm_ok=1
     log "TPM2 already enrolled (install-time); keeping it."
-elif PASSWORD="$pass" systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=7 "$dev"; then
-    log "TPM2 enrolled."
+elif tpm_reason="$(/usr/libexec/svk/tpm2-capable)"; then
+    # Probe first: an inadequate TPM is worth naming, not discovering by failure.
+    log "TPM2 probe: ${tpm_reason}"
+    if PASSWORD="$pass" systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=7 "$dev"; then
+        tpm_ok=1
+        log "TPM2 enrolled."
+    else
+        log "WARNING: TPM2 enrollment failed on a capable TPM — will retry on next boot."
+    fi
 else
-    tpm_ok=0
-    log "WARNING: TPM2 enrollment failed — will retry on next boot."
+    tpm_capable=0
+    # Defensive: the probe ships alongside this script, but if it were ever missing
+    # the reason would be empty and the banner below would say nothing useful.
+    tpm_reason="${tpm_reason:-tpm2-capable probe did not report a reason}"
+    log "WARNING: TPM2 auto-unlock not possible: ${tpm_reason}"
 fi
 
 # 3. Ask systemd-cryptsetup to try the TPM at boot: add tpm2-device=auto to the
@@ -110,6 +156,19 @@ ${qr}
 BANNER
 if [ "$tpm_ok" = 1 ]; then
     echo "  TPM2 auto-unlock: ENROLLED (this disk should unlock without a prompt)."
+elif [ "$tpm_capable" = 0 ]; then
+    # Permanent fallback. Say why, and say what it means for daily use — this is the
+    # case that used to look like "the machine mysteriously asks for a passphrase".
+    echo "  TPM2 auto-unlock: NOT POSSIBLE on this machine."
+    echo "    Reason: ${tpm_reason}."
+    echo "  This disk will ask for the RECOVERY KEY ABOVE ON EVERY BOOT. Record it"
+    echo "  durably and label the machine — it is the only way in."
+    sb="$(sb_state)"
+    echo "  Secure Boot: ${sb}."
+    if [ "$sb" = disabled ]; then
+        echo "  Enabling Secure Boot in firmware is strongly recommended on a machine"
+        echo "  that cannot bind its disk key to a TPM."
+    fi
 else
     echo "  TPM2 auto-unlock: FAILED — you will be asked for this key each boot until"
     echo "  it succeeds (it retries on the next boot). Keep the key safe."
@@ -117,21 +176,55 @@ fi
 echo
 # Block (with a generous cap) so provisioning can't race past the key. If nobody
 # is present the machine still proceeds after the timeout rather than hanging.
-read -r -t 900 -p "  Press ENTER once you have recorded the recovery key... " _ || \
+# Whether a human actually acknowledged is load-bearing in the no-TPM case below.
+acked=1
+read -r -t 900 -p "  Press ENTER once you have recorded the recovery key... " _ || {
+    acked=0
     log "no acknowledgement within timeout; continuing."
+}
 
-# 5. Wipe the shared bootstrap passphrase so the ISO's secret no longer unlocks
-#    anything. Only once TPM enrollment succeeded (else keep it for the retry).
-if [ "$tpm_ok" = 1 ]; then
+# 5. Wipe the install-time bootstrap passphrase so it no longer unlocks anything,
+#    and converge — this service should stay enabled only if a retry could help.
+#
+#    `--wipe-slot=password` removes password slots only; systemd records the
+#    recovery key as its own `recovery` slot type, so the key printed above
+#    survives the wipe. That distinction is what makes the no-TPM branch safe.
+wipe_bootstrap() {
     log "wiping the bootstrap passphrase slot..."
     PASSWORD="$pass" systemd-cryptenroll --wipe-slot=password "$dev" || \
         log "WARNING: could not wipe the bootstrap slot; do so manually."
     rm -f "$BOOTSTRAP"
     mkdir -p "$(dirname "$STAMP")"
     : >"$STAMP"
+}
+
+if [ "$tpm_ok" = 1 ]; then
+    wipe_bootstrap
     done_disable
     log "done."
+elif [ "$tpm_capable" = 0 ]; then
+    # No usable TPM: retrying can never succeed, and re-running would only mint a
+    # second recovery key. Stop either way.
+    #
+    # The wipe is gated on a human acknowledgement here, because unlike the branch
+    # above there is no TPM to fall back on: wiping would leave the recovery key as
+    # the disk's ONLY secret, and on an unattended install nobody saw it. Keeping a
+    # per-install passphrase slot on such a machine is the lesser evil — it is
+    # unique to this install and never shipped in the ISO.
+    if [ "$acked" = 1 ]; then
+        wipe_bootstrap
+        log "no usable TPM; the recovery key is now this disk's only unlock secret."
+    else
+        log "WARNING: no usable TPM, and the recovery key was never acknowledged."
+        log "         Keeping the bootstrap passphrase slot so this disk stays openable."
+        log "         The passphrase is in ${BOOTSTRAP}. Once the recovery key is"
+        log "         recorded, wipe the slot and the file:"
+        log "           systemd-cryptenroll --wipe-slot=password ${dev}"
+        log "           rm -f ${BOOTSTRAP}"
+    fi
+    done_disable
 else
-    # Leave BOOTSTRAP in place; the service stays enabled to retry next boot.
+    # Capable TPM, failed enrollment. Leave BOOTSTRAP in place; the service stays
+    # enabled to retry next boot.
     log "TPM not enrolled; leaving bootstrap in place to retry."
 fi
