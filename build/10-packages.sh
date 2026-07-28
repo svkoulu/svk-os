@@ -59,7 +59,19 @@ dnf5 install -y \
     tpm2-tools \
     dmidecode \
     jq \
-    just
+    just \
+    smartmontools \
+    lshw \
+    inxi \
+    strace \
+    powertop
+    # On-machine diagnostics. The rest of the kit is already in the Silverblue
+    # base and is listed here only so nobody re-adds it: cryptsetup (luksDump —
+    # the tool that diagnosed the FDE failure), efibootmgr, nvme-cli, pciutils,
+    # usbutils, bind-utils, ethtool, lsof, hdparm, sos, util-linux. Together with
+    # tpm2-tools + dmidecode above, that is enough to diagnose a machine from its
+    # own console instead of from a live USB.
+    #
     # Print stack — add exactly what the school needs, e.g.:
     #   cups-filters gutenprint hplip
     # <<ADD SYSTEM PACKAGES HERE>>  (school fonts, tools, ...)

@@ -12,6 +12,20 @@ echo "::group:: dconf defaults"
 dconf update
 echo "::endgroup::"
 
+# BRING-UP ESCAPE HATCH (temporary, 2026-07-28). SVK_LOCKDOWN=0 builds an image
+# where the admin-facing apps below are left executable and visible for EVERY
+# account — Disks, Terminal and System Monitor reachable from the session you are
+# actually sitting in. It exists because the lockdown is otherwise total: those
+# apps are mode 0750 root:wheel, and the only account in wheel is `admin`, which
+# has a LOCKED PASSWORD (usr/lib/sysusers.d/svk-admin.conf) and is hidden from the
+# greeter — so on a freshly installed machine with no working SSH there is no way
+# to reach a terminal at all. That is fine for the fleet and useless for bring-up.
+#
+# Set from Containerfile.os, which currently passes 0. FLIP IT BACK TO 1 BEFORE
+# THE FLEET ISO — this default (locked) is what a stray `podman build` gets.
+LOCKDOWN="${SVK_LOCKDOWN:-1}"
+[ "$LOCKDOWN" = 1 ] || echo "!! SVK_LOCKDOWN=${LOCKDOWN}: building WITHOUT per-account app restrictions"
+
 echo "::group:: Restrict admin-facing GNOME apps by group"
 # There is no per-machine flavor any more, so the boundary is the ACCOUNT:
 #
@@ -59,6 +73,7 @@ fi
 restrict() {
     local bin="$1" group="$2"
     [ -e "$bin" ] || { echo "  skip ${bin} (not in this image)"; return 0; }
+    [ "$LOCKDOWN" = 1 ] || { echo "  bring-up: leaving ${bin} runnable by everyone"; return 0; }
     chgrp "$group" "$bin"
     chmod 0750 "$bin"
     echo "  restricted ${bin} -> group ${group}, mode 0750"
@@ -105,6 +120,10 @@ echo "::group:: Hidden-launcher sets (NoDisplay stubs, selected via XDG_DATA_DIR
 # desktop entry fails the build rather than degrading quietly.
 stub_launchers() {
     local set_name="$1"; shift
+    # Bring-up: no stubs. The kickstarts still point XDG_DATA_DIRS at these
+    # directories; a missing entry there is ignored, so every launcher stays
+    # visible and nothing else has to change.
+    [ "$LOCKDOWN" = 1 ] || { echo "  bring-up: no hidden-launcher set '${set_name}'"; return 0; }
     local dir="/usr/share/svk/hidden-apps/${set_name}/applications"
     mkdir -p "$dir"
     local bin base entry id found

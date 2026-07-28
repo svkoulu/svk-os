@@ -209,15 +209,31 @@ lang fi_FI.UTF-8
 keyboard --vckeymap=fi --xlayouts=fi
 timezone Europe/Helsinki --utc
 
-# Full disk, btrfs, LUKS. The encryption passphrase is generated per-install in the
-# %pre below (nothing baked into the ISO) and pulled in via %include. TPM2 is
-# pre-enrolled at install time (svk-luks-tpm.ks %post) so the FIRST boot auto-unlocks
-# with no prompt; the kernel arg tells the initramfs to try the TPM first.
+# Full disk, btrfs. `--noswap`: rely on zram.
+#
+# ENCRYPTION IS DISABLED FOR BRING-UP (2026-07-28) — everything LUKS is commented
+# out below, restore it by swapping the plain `autopart` line for the %include +
+# bootloader + %pre block and un-commenting the two %include's further down.
+#
+# Why: on the first real install (HP EliteBook 845 G7, fTPM 2.0, Secure Boot on)
+# the install-time enrollment in svk-luks-tpm.ks did not happen — `luksDump` on
+# the installed disk showed one password keyslot and NO systemd-tpm2 token — so
+# the machine rebooted into a passphrase prompt. And because the passphrase is
+# minted in %pre and only ever exists in the installer's RAM and on the encrypted
+# disk itself, that prompt was unanswerable: the install was unrecoverable.
+#
+# Two things must be fixed before this comes back, in this order:
+#   1. A failed enrollment must not brick the install (show the passphrase, or
+#      halt instead of rebooting), and the reason must land somewhere readable
+#      without unlocking the disk — the ESP.
+#   2. Then find out WHY the chroot %post skipped: probe result, /dev/tpmrm0
+#      visibility in the chroot, /etc/crypttab presence, or cryptenroll itself.
 zerombr
 clearpart --all --initlabel
-%include /tmp/svk-storage.ks
-bootloader --append="rd.luks.options=tpm2-device=auto"
-
+autopart --type=btrfs --noswap
+#%include /tmp/svk-storage.ks
+#bootloader --append="rd.luks.options=tpm2-device=auto"
+#
 # Per-install LUKS passphrase: unique to THIS machine, minted here at install time so
 # no shared secret ever lives in the ISO/installer image. Alnum-only (32 chars from
 # /dev/urandom) to sidestep any kickstart quoting edge cases. Written into the
@@ -225,13 +241,13 @@ bootloader --append="rd.luks.options=tpm2-device=auto"
 # %post that seeds the target's /etc/svk/luks-bootstrap. On a machine with NO TPM
 # (where first boot would prompt for it), an attended operator can read it before the
 # auto-reboot via a console (Ctrl+Alt+F2): `cat /tmp/svk-luks-bootstrap`.
-%pre --erroronfail
-umask 077
-pass="$(head -c 256 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 32)"
-printf '%s\n' "$pass" > /tmp/svk-luks-bootstrap
-printf 'autopart --type=btrfs --noswap --encrypted --passphrase="%s"\n' "$pass" \
-    > /tmp/svk-storage.ks
-%end
+#%pre --erroronfail
+#umask 077
+#pass="$(head -c 256 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 32)"
+#printf '%s\n' "$pass" > /tmp/svk-luks-bootstrap
+#printf 'autopart --type=btrfs --noswap --encrypted --passphrase="%s"\n' "$pass" \
+#    > /tmp/svk-storage.ks
+#%end
 EOF
 # Second heredoc is unquoted so ${IMAGE_REPO}:${IMAGE_TAG} expand at build time.
 cat <<EOF
@@ -241,8 +257,10 @@ ostreecontainer --url=${IMAGE_REPO}:${IMAGE_TAG} --transport=containers-storage 
 %include /usr/share/anaconda/post-scripts/svk-disable-fedora-flatpak.ks
 %include /usr/share/anaconda/post-scripts/svk-install-flatpaks.ks
 %include /usr/share/anaconda/post-scripts/svk-flatpak-selinux.ks
-%include /usr/share/anaconda/post-scripts/svk-luks-bootstrap.ks
-%include /usr/share/anaconda/post-scripts/svk-luks-tpm.ks
+# Disabled with the encryption above (2026-07-28). Both are already inert without
+# a %pre-minted passphrase; commented out so the automated installs say so.
+#%include /usr/share/anaconda/post-scripts/svk-luks-bootstrap.ks
+#%include /usr/share/anaconda/post-scripts/svk-luks-tpm.ks
 EOF
 }
 

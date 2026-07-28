@@ -129,6 +129,16 @@ fleet's provisioning route.
 
 ## Install automation & disk encryption
 
+> **DISK ENCRYPTION IS OFF (bring-up, 2026-07-28).** Everything LUKS in
+> `common_ks()` is commented out — installs are now **plain btrfs autopart**, and
+> the "Disk encryption (LUKS + TPM2)" section below describes the state to
+> restore, not the current one. The first hardware install (HP EliteBook 845 G7,
+> fTPM 2.0, Secure Boot on) came up at an unanswerable passphrase prompt: the
+> install-time TPM2 enrollment silently didn't happen (`luksDump`: one password
+> keyslot, no `systemd-tpm2` token) and the only passphrase that could have opened
+> the disk existed solely in the installer's RAM and on the encrypted disk itself.
+> Re-enable only after a failed enrollment can no longer brick an install.
+
 Both kickstarts pre-answer every Anaconda step, so either role installs with no
 manual steps from its **automated** GRUB entry. They differ ONLY in the role
 `%post` — same image, same everything else:
@@ -140,7 +150,7 @@ manual steps from its **automated** GRUB entry. They differ ONLY in the role
 | Role `%post` | writes `/etc/gdm/custom.conf` (autologin) and `/etc/skel/…/20-svk-role.conf` (`DCONF_PROFILE=kiosk` + the `opilas` hidden-launcher set) | writes `/etc/skel/…/20-svk-role.conf` (the `wheel-only` hidden-launcher set) into skel **and** the staff home, then `chage -d 0 staff` |
 | Language / keyboard | Finnish (`fi_FI.UTF-8`, `fi` layout) | same |
 | Timezone | Europe/Helsinki | same |
-| Disk | wipe all disks → btrfs autopart, LUKS-encrypted | same |
+| Disk | wipe all disks → btrfs autopart (LUKS **disabled**, see the note above) | same |
 
 `opilas` is created **by the kickstart**, not by `sysusers.d` in the image: with one
 image for the whole fleet, that has to be an install-time decision or every staff

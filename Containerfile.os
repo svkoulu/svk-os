@@ -79,6 +79,12 @@ RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     --mount=type=tmpfs,dst=/tmp \
     /ctx/build/10-packages.sh
 
+# BRING-UP: 0 = do NOT restrict the admin-facing apps (Disks, Terminal, System
+# Monitor, gnome-software) to wheel/svk-staff, and ship no hidden-launcher stubs,
+# so they are reachable from the opilas/staff session during hardware validation.
+# See the rationale in build/40-desktop.sh. SET BACK TO 1 BEFORE THE FLEET ISO.
+ARG SVK_LOCKDOWN="0"
+
 # System config: services + mDNS, the admin account, desktop lockdown (no network).
 RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     --mount=type=tmpfs,dst=/boot \
