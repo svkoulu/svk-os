@@ -23,7 +23,7 @@ Titanoboa's own interface changed upstream.
 | `flatpaks/common.list` | the fleet app set, baked into the ISO (system scope) |
 | `iso/installer/Containerfile` | builds the throwaway installer image `FROM` the real `svk-os` image |
 | `iso/installer/build.sh` | installs Anaconda (+`tmux`, needed by `anaconda.service`) and the on-site repair kit, writes **both role kickstarts** (localization + auto-partition + LUKS, `bootc switch`es the origin to the signed registry ref, rsyncs the baked `/var/lib/flatpak` onto the target — **no Secure Boot enrollment**, N4), pre-installs the flatpak set into `/var/lib/flatpak`, adds `dracut-live`/`livesys-scripts` for live-boot, and writes `iso.yaml` |
-| `iso/build-iso.sh` | wrapper: get `svk-os` into root's podman storage (and, for a local build, export it to `iso/.local-image/` for the installer's nested copy), build the installer image, run pinned Titanoboa against it, collect the ISO |
+| `iso/build-iso.sh` | wrapper: get `svk-os` into local podman storage (and, for a local build, export it to `iso/.local-image/` for the installer's nested copy), build the installer image, run pinned Titanoboa against it, collect the ISO — all **rootless** |
 | `files/os/usr/libexec/svk/luks-tpm-enroll` (+ `.service`) | first-boot: TPM2 auto-unlock enrollment + on-screen per-machine recovery key (shipped in the OS image, not the ISO) |
 | `files/os/usr/libexec/svk/tpm2-capable` | the TPM2 capability probe both the install-time `%post` and the first-boot service gate on (device **and** `PolicyAuthorizeNV`) |
 | `.github/workflows/iso.yml` | the ISO build — reusable (called by `build.yml` per channel) and `workflow_dispatch` |
@@ -51,8 +51,9 @@ it under the real registry ref, so the kickstart and the installed machine's
 update origin stay identical to a production build.
 
 Consequence worth knowing before you start one: a local ISO build writes the
-image **three** times — the local build itself, the root-storage copy, and the
-archive — on top of a multi-GB installer image and the squashfs/ISO output.
+image **twice** — the local build itself and the OCI archive — on top of a
+multi-GB installer image and the squashfs/ISO output. (It was three before the
+build went rootless; the root-storage copy is gone.)
 Measured on 2026-08-19, x86_64, with the 16-app flatpak set:
 
 | step | on-disk cost |
@@ -77,23 +78,31 @@ Beyond the general build dependencies in the top-level `README.md`
 |---|---|
 | `git` | cloning the pinned Titanoboa commit |
 | `rsync` | copying that clone into `iso/.build/` |
-| `sudo`, password-authenticated | root podman for the installer-image build (`--cap-add sys_admin`) and Titanoboa's own privileged squashfs/loop-device work |
 
 Install on Fedora: `sudo dnf install git rsync`.
 On openSUSE Tumbleweed: `sudo zypper install git rsync`.
 
-**Environment requirements** (learned the hard way — see git history if these
-ever need re-diagnosing):
-- Run this from a **genuine host shell**, not from inside a distrobox/toolbox/
-  devcontainer that bridges commands out to the host (e.g. via
-  `distrobox-host-exec`). Unprivileged `podman` calls work fine through such a
-  bridge, but `sudo podman ...` doesn't — root can't reach back into the
-  bridge's D-Bus session, so every privileged step fails with either
-  `command not found` or an unprompted `a password is required`, no matter how
-  correct the password is. If `just` itself was installed via
-  `distrobox export`, invoking it *still* runs the recipe inside the
-  container even from a real host terminal — run `bash iso/build-iso.sh ...`
-  directly instead in that case.
+**No root, and no `sudo` anywhere in the build** (2026-08-19). It used to want
+password-authenticated `sudo` for "root podman + Titanoboa's privileged
+squashfs/loop-device work", and that turned out to be untrue of both halves: the
+installer image is an ordinary `podman build` (`--cap-add sys_admin` is a
+*namespaced* capability a rootless container may hold, and is there for the
+flatpak bake), and Titanoboa's ISO step runs `mksquashfs -all-root`, `mkfs.fat` +
+`mcopy` on a plain file, and `xorriso` — no loop device, no real uid, nothing
+that a user namespace can't provide. `build-iso.sh` therefore patches upstream
+`main.sh`'s single hard-coded `sudo podman run` out of its pinned local copy, and
+**fails the build** if a `TITANOBOA_REF` bump ever leaves a `sudo` behind.
+
+Two things this bought, beyond not typing a password:
+- the multi-GB user→root image copy (`podman image scp`) is gone — one store, so
+  the installer image built in step 2 is already where Titanoboa looks for it;
+- it now works from inside a **distrobox/toolbox/devcontainer**. That was the old
+  hard requirement to use a genuine host shell: unprivileged `podman` bridges out
+  to the host fine, but `sudo podman` can't reach back into the bridge's D-Bus
+  session and failed with `command not found` or an unprompted `a password is
+  required`, no matter how correct the password was.
+
+**Environment requirements**:
 - A few GB of free disk headroom (`podman system df` / `podman system prune`
   to check/reclaim) — the installer image build and the squashfs/ISO output
   are each multi-GB.

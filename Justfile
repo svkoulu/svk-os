@@ -28,7 +28,7 @@ build-os:
 # Build THE installer ISO with Titanoboa. One ISO for the whole fleet: the role
 # (lab / staff) is picked from the GRUB menu at boot, not chosen here.
 # repo=local|ghcr  channel=stable|testing (only meaningful for repo=ghcr; stable
-# needs a cut git tag). Needs a real host with root podman + AC power (heavy).
+# needs a cut git tag). Rootless, but heavy: needs AC power and ~45 GB free.
 [group('build')]
 iso repo="local" channel="stable":
     iso/build-iso.sh {{ repo }} {{ channel }}

@@ -11,8 +11,8 @@
 # flavor argument any more — svk-student and svk-staff collapsed into svk-os.
 #
 # What it does:
-#   1. Gets the svk-os image into root's podman storage (Titanoboa/the installer
-#      build need root podman for loop devices + privileged mounts).
+#   1. For a local build, exports the svk-os image to an OCI archive the installer
+#      build bind-mounts in (see step 2); a ghcr build just pulls it.
 #   2. Builds a throwaway "installer image" (iso/installer/) FROM that image:
 #      Anaconda + both kickstarts + the offline flatpak bake + live-boot support +
 #      iso.yaml. Never pushed anywhere — it only exists to feed Titanoboa.
@@ -21,7 +21,8 @@
 #   4. Copies the resulting ISO to iso/svk-os-<version>.iso (version from the
 #      target image's image.version label, e.g. stable-1-20260718).
 #
-# Needs a real host with root podman + AC power (ISO builds are heavy).
+# Runs entirely ROOTLESS (see the note below). Needs AC power and ~45 GB free
+# (ISO builds are heavy) — see iso/README.md for the disk breakdown.
 set -euo pipefail
 
 # --- Titanoboa pin. Track ublue-os/titanoboa; bump deliberately (upstream did a
@@ -34,20 +35,20 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 NAMESPACE="${NAMESPACE:-svkoulu}"
 REGISTRY="${REGISTRY:-ghcr.io}"
 
-# `sudo`'s secure_path often doesn't include wherever podman actually lives (e.g.
-# /usr/local/bin), so a bare `sudo podman` can fail with "command not found" even
-# though passwordless sudo itself works fine — resolve the absolute path once and
-# always invoke sudo with that, never with the bare command name.
-PODMAN="$(command -v podman)"
-
-# Prime sudo's credential cache up front and keep it alive for the whole script:
-# without this, a long step (e.g. copying a multi-GB image) can outlast sudo's
-# timestamp, and a later sudo call fails with "a password is required" since
-# there's no TTY to re-prompt in this non-interactive pipeline.
-sudo -v
-( while true; do sudo -n -v; sleep 60; done ) &
-SUDO_KEEPALIVE_PID=$!
-trap 'kill "$SUDO_KEEPALIVE_PID" 2>/dev/null || true' EXIT
+# --- ROOTLESS, deliberately. ---------------------------------------------------
+# No step here needs root, so none of them asks for it, and nothing is copied into
+# root's podman storage. `--cap-add sys_admin` is a *namespaced* capability that a
+# rootless container is free to hold, and Titanoboa's payload never touches a loop
+# device or a real uid: mksquashfs runs `-all-root`, the EFI image is mkfs.fat +
+# mcopy on an ordinary file, and xorriso writes a file. This was the finding of the
+# first end-to-end VM install (tasks/…-first-end-to-end-vm-install.md, 2026-08-19),
+# and it removes a whole class of failure — the multi-GB user->root image copy, the
+# sudo credential-cache dance, and `sudo podman` not working through a distrobox
+# host bridge.
+#
+# Running the WHOLE script under sudo still works (one store, one uid). What must
+# never come back is `sudo` on individual steps: that splits the images across two
+# stores, which is the only reason a copy step ever existed.
 
 repo="${1:-ghcr}"
 channel="${2:-stable}"
@@ -65,12 +66,12 @@ case "$repo" in
     *) echo "repo must be ghcr|local" >&2; exit 1 ;;
 esac
 
-# --- 1. Make sure BASE_IMAGE is in root's podman storage -----------------------
-# Titanoboa and the installer-image build both need root podman. For repo=local
-# this always re-copies rather than checking "does root already have this tag" —
-# :latest is a moving tag, so a stale check would silently keep building the ISO
-# from whatever old content a previous run last copied in, never picking up a
-# rebuilt local image.
+# --- 1. Make sure BASE_IMAGE is available ---------------------------------------
+# Everything downstream reads the image out of THIS user's podman storage, so a
+# local build needs nothing here beyond the export below, and a ghcr build just
+# pulls. The export is unconditional rather than cached on "is the archive still
+# there": :latest is a moving tag, so a stale check would silently keep building
+# the ISO from whatever old content a previous run left behind.
 # iso/.local-image/ is bind-mounted into the installer build (see
 # iso/installer/Containerfile). For a ghcr build it stays empty and the installer
 # pulls the published image; for a local build it carries an OCI archive of the
@@ -83,12 +84,11 @@ LOCAL_IMAGE_DIR="${REPO_ROOT}/iso/.local-image"
 rm -rf "$LOCAL_IMAGE_DIR"; mkdir -p "$LOCAL_IMAGE_DIR"
 # The archive is image-sized (multi-GB) and pure build input — never leave it
 # behind, on success or failure.
-trap 'kill "$SUDO_KEEPALIVE_PID" 2>/dev/null || true; rm -rf "$LOCAL_IMAGE_DIR"' EXIT
+trap 'rm -rf "$LOCAL_IMAGE_DIR"' EXIT
 
 if [ "$repo" = "ghcr" ]; then
-    sudo "$PODMAN" pull "$BASE_IMAGE"
+    podman pull "$BASE_IMAGE"
 else
-    podman image scp "$(id -un)@localhost::${BASE_IMAGE}" "root@localhost::${BASE_IMAGE}"
     echo "Exporting ${BASE_IMAGE} for the installer's nested copy (multi-GB, one-off)..."
     podman save --format oci-archive -o "${LOCAL_IMAGE_DIR}/image.tar" "$BASE_IMAGE"
 fi
@@ -98,12 +98,12 @@ fi
 # local-20260719) so the GRUB boot-menu entry can show the exact version being
 # installed, not just the rolling channel alias in IMAGE_REF. Same label build-iso
 # step 5 uses to name the ISO file — read once here, reused there.
-IMG_VERSION="$(sudo "$PODMAN" inspect --format '{{index .Config.Labels "org.opencontainers.image.version"}}' "$BASE_IMAGE" 2>/dev/null || true)"
+IMG_VERSION="$(podman inspect --format '{{index .Config.Labels "org.opencontainers.image.version"}}' "$BASE_IMAGE" 2>/dev/null || true)"
 # BASE_IMAGE's own commit (stamped by Containerfile.os's GIT_SHA build-arg) —
 # the source commit the PACKAGED IMAGE was built from. Reported
 # alongside ISO_GIT_SHA below since the two can legitimately differ (an ISO can be
 # rebuilt with newer iso/ scripts against an older, already-published image).
-IMG_GIT_SHA="$(sudo "$PODMAN" inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$BASE_IMAGE" 2>/dev/null || true)"
+IMG_GIT_SHA="$(podman inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$BASE_IMAGE" 2>/dev/null || true)"
 # Commit of THIS svk repo checkout, i.e. the iso/ scripts assembling this ISO —
 # distinct from IMG_GIT_SHA above. Stamped into the live environment as
 # svk-os/iso-build-info.json (see iso/installer/build.sh).
@@ -118,7 +118,7 @@ ISO_GIT_SHA="$(git -C "$REPO_ROOT" rev-parse HEAD 2>/dev/null || true)"
 # build (the kickstart expires it at first login either way). See the note in
 # iso/installer/build.sh; the real fix is the USB provisioning config.
 INSTALLER_IMAGE="localhost/svk-os-installer:latest"
-sudo "$PODMAN" build \
+podman build \
     --cap-add sys_admin --security-opt label=disable \
     --build-arg BASE_IMAGE="$BASE_IMAGE" \
     --build-arg IMAGE_REF="$IMAGE_REF" \
@@ -141,10 +141,20 @@ if [ ! -f "${BUILD_DIR}/main.sh" ]; then
     rsync -a --exclude='.git/' "$tmp/" "$BUILD_DIR/"
     rm -rf "$tmp"
 fi
-# main.sh does its own internal `sudo podman run` — same bare-command PATH problem
-# as above, in code we don't control. Patch our pinned local copy to use the
-# resolved absolute path too (idempotent: no-op once already patched).
-sed -i "s|sudo podman run|sudo \"\$PODMAN\" run|" "${BUILD_DIR}/main.sh"
+# main.sh escalates its one `podman run` with `sudo`, unconditionally and in code
+# we don't control — which would push us back into root's storage, where the
+# installer image we just built rootlessly does not exist. Drop the escalation from
+# our pinned local copy. The pattern matches whatever command follows `sudo`, so an
+# iso/.build/ left over from an older checkout — where this patch rewrote the line
+# to `sudo "$PODMAN" run` — is fixed too rather than skipped (the clone above only
+# runs when main.sh is already missing). No-op once patched.
+sed -i -E 's@sudo +[^ ]+ run@podman run@' "${BUILD_DIR}/main.sh"
+# Fail loudly rather than silently building as root if a TITANOBOA_REF bump moves
+# that line — a patch that stops matching is exactly how sudo would creep back.
+if grep -qE '(^|[[:space:]])sudo[[:space:]]' "${BUILD_DIR}/main.sh"; then
+    echo "titanoboa main.sh still escalates with sudo — the de-sudo patch is stale" >&2
+    exit 1
+fi
 
 # Unmerged upstream fix (https://github.com/ublue-os/titanoboa/pull/147, base
 # commit == our pin): mksquashfs treats everything after the first -e as exclude
@@ -158,13 +168,11 @@ sed -i \
     "${BUILD_DIR}/build_iso.sh"
 
 # --- 4. Build the ISO -----------------------------------------------------------
-# main.sh escalates internally via its own single `sudo podman run` — do NOT wrap
-# this call in sudo yourself, or you'll hit an unauthenticated nested-sudo prompt
-# (root has no sudo rules of its own on most hosts). Since the installer image was
-# just built with `sudo podman build`, it's already in root's storage, so that
-# internal `--mount type=image` finds it directly.
+# Same user, same store: main.sh's `--mount type=image` finds the installer image
+# built in step 2 directly. The ISO it writes is owned by us, so there is nothing
+# to chown afterwards.
 cd "$BUILD_DIR"
-iso_path="$(env TITANOBOA_CTR_IMAGE="$INSTALLER_IMAGE" PODMAN="$PODMAN" ./main.sh)"
+iso_path="$(env TITANOBOA_CTR_IMAGE="$INSTALLER_IMAGE" ./main.sh)"
 
 # --- 5. Collect the ISO ----------------------------------------------------------
 # Name the ISO after the exact image version it targets (the image.version label /
@@ -173,7 +181,6 @@ iso_path="$(env TITANOBOA_CTR_IMAGE="$INSTALLER_IMAGE" PODMAN="$PODMAN" ./main.s
 img_ver="$IMG_VERSION"
 [ -n "$img_ver" ] || img_ver="$(date +%Y%m%d)"
 out="${REPO_ROOT}/iso/svk-os-${img_ver}.iso"
-sudo chown "$(id -u):$(id -g)" "$iso_path"
 mv "$iso_path" "$out"
 
 # Provenance sidecar next to the ISO — full build metadata in one readable file that

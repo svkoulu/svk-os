@@ -98,8 +98,9 @@ project's releases page (`cosign` ships a static binary).
 Building an **ISO** (`just iso`) has two extra requirements beyond the table
 above — see `iso/README.md` for the full list.
 
-Building an **installer ISO** additionally needs a beefy host with root `podman`
-and plenty of disk — it's heavy; prefer the `iso` CI workflow (see below).
+Building an **installer ISO** additionally needs a beefy host with plenty of disk
+(~45 GB) — it's heavy; prefer the `iso` CI workflow (see below). It needs **no
+root and no `sudo`**, and works from inside a toolbox/distrobox.
 
 ```bash
 just build-os                   # the desktop image

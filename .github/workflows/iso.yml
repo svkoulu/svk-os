@@ -56,12 +56,15 @@ jobs:
         with:
           remove-codeql: true
 
-      - name: Login to GHCR (root's podman — Titanoboa runs under sudo)
+      # Plain (rootless) podman: the whole ISO build runs as the runner user and
+      # reads one store — see the rootless note in iso/build-iso.sh. A `sudo podman
+      # login` here would authenticate the wrong store and the pull would 401.
+      - name: Login to GHCR
         env:
           REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           .github/scripts/retry.sh 5 bash -c '
-            echo "${REGISTRY_TOKEN}" | sudo podman login "${REGISTRY}" \
+            echo "${REGISTRY_TOKEN}" | podman login "${REGISTRY}" \
               -u "${{ github.actor }}" --password-stdin'
 
       # Retried on transient registry/CDN failures only (retry.sh classifies): the ISO

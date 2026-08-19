@@ -58,9 +58,11 @@ infra's versions are directly readable as a model; the assertions are ours.
 
 ## The hard parts, honestly
 
-- **The ISO build needs root podman** (Titanoboa's privileged squashfs/loop
-  work), and GitHub's hosted runners can do that, but they have **no KVM** — so
-  the boot half cannot run on a hosted runner at all. infra solved the same
+- **The boot half needs KVM**, and GitHub's hosted runners have none — so it
+  cannot run on a hosted runner at all. (The ISO build itself is no longer a
+  constraint: it went fully rootless on 2026-08-19, Titanoboa's "privileged
+  squashfs/loop work" having turned out to be `mksquashfs -all-root` + `mcopy` +
+  `xorriso`, none of which needs root.) infra solved the same
   problem with a self-hosted runner on a fleet box (ADR 0020). The equivalent
   here is a runner on the school box, or accepting that tier 2 is a
   **workstation-only** gate run before cutting a tag.
