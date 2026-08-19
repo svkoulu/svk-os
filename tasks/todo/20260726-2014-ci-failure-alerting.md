@@ -67,3 +67,29 @@ task is the **CI** side. They catch different failures and neither substitutes
 for the other: CI alerting catches a broken build, svk-check catches a machine
 that stopped applying good builds. Both are needed before a cosign key rotation
 can be attempted safely (see the *Signing key* section in `README.md`).
+
+---
+
+## Update 2026-08-19 — the receiver question is already answered next door
+
+`../infra` reached the dead-man's-switch conclusion too and implemented it
+(ADR 0025, superseding its own earlier spool design): `heartbeat.timer` and
+`update-staleness` report to **healthchecks.io**, deliberately off-site and over
+a path that does not touch the fleet's own network, because a receiver hosted on
+the fleet's infrastructure makes an outage of that infrastructure
+indistinguishable from a dead fleet.
+
+That settles the "where does the alert go" half of this task without further
+design work, and it means CI and the machines can report to the *same* service —
+which is what makes the two signals comparable. The pairing is the point: CI
+pinging on success proves builds are being produced; machines pinging proves they
+are being consumed. Either alone is half an answer.
+
+Concretely, adopt: a healthchecks.io check pinged by the weekly stable build, with
+a grace period longer than one cron period; and, separately,
+`…-fleet-heartbeat-and-drift-reporting.md` for the machine side.
+
+Note the option above that is **not** superseded: "a Tailscale-reachable endpoint
+on svk-server" is now doubly wrong — lab machines are not on the tailnet at all,
+and the fate of `svk-server` itself is an open question
+(`…-svk-server-vs-infra-svk-box.md`).

@@ -222,3 +222,20 @@ about.)*
 
 Hostname (owned by the server's dispenser), Tailscale enrollment (already per-flavor
 via `svk-tailscale-enroll`), and any change to `admin`/`opilas`.
+
+---
+
+## Update 2026-08-19 — where the secrets themselves should live
+
+This spec covers the *delivery* of per-site configuration to a machine that has
+no other channel, which is still right. It does not answer where those values are
+kept between provisioning runs, and today the answer is three different places
+(a placeholder in the kickstart, a gitignored `.nmconnection`, a file typed onto
+a USB stick by hand) plus one value that travels on a command line.
+
+`…-secrets-at-rest.md` is that missing half, borrowed from `../infra`'s ADR 0012:
+one encrypted per-site file, values set from stdin rather than argv, and a
+**refusal** to build when a secret appears in a plaintext file. Implement it
+first or alongside — this spec's `.example`-seeded-by-hand step becomes "decrypt
+the site file onto the stick" and stops being a place where a password can be
+forgotten in a working tree.

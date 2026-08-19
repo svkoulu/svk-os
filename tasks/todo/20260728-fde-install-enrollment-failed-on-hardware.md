@@ -88,3 +88,65 @@ setup in the installed context by construction.
   `tpm2-capable` still ship and are no-ops via `ConditionPathExists`.
 - `iso/README.md` carries a banner saying the section describes the state to
   restore, not the current one.
+
+---
+
+## Update 2026-08-19 — static review of the failure paths, and a fix proposal
+
+No hardware involved; this is what reading the code says, to narrow what the next
+install has to look at.
+
+### The FDE-disabled state is consistent — one thing checked and cleared
+
+`svk-luks-bootstrap.ks` and `svk-luks-tpm.ks` are still `%include`d, uncommented,
+by `interactive-defaults.ks` (the live-session fallback path) while the two role
+kickstarts have them commented out. That looked like a divergence and is not:
+both scripts guard on the per-install passphrase file, which that path never
+creates, so they are inert there. No action.
+
+### The four places the chroot `%post` can exit without saying anything
+
+In order of how much evidence would survive:
+
+1. `[ -f /etc/svk/luks-bootstrap ]` false — the preceding `--nochroot` `%post`
+   did not write it. Would mean the failure is *before* anything TPM-related.
+2. `tpm2-capable` non-zero — this one *does* echo a reason, but only into the
+   installer's log, on a machine that then rebooted into an unanswerable prompt.
+3. `[ -n "$uuid" ] && [ -e "$dev" ]` false — `/etc/crypttab` not yet written in
+   the chroot, or `/dev/disk/by-uuid/` not populated inside it. **This is the only
+   branch that produces no message at all**, and it is also the one most likely to
+   differ between a chroot and a booted system.
+4. `systemd-cryptenroll` itself failing — echoes "first boot will retry", again
+   only into the installer log.
+
+So three of the four leave a line in the installer log and one leaves nothing —
+and none of them reaches the operator, because the machine reboots into a prompt
+that cannot be answered. **The diagnosis problem is not the enrollment, it is that
+the evidence dies with the installer environment.**
+
+### Proposed fix, in the order the task already has it
+
+1. **Make the evidence survive.** Write a plain-text install log to the ESP
+   (`/boot/efi/EFI/svk/install.log` — mounted in the chroot, readable from any
+   machine, unencrypted by definition). Log every branch above by name, including
+   the ones that currently exit silently, plus the probe's own message. **No
+   secrets in it** — never the passphrase, never the recovery key. The ESP is
+   readable by anyone holding the laptop, which is exactly why it is a good place
+   for diagnostics and a terrible one for a key.
+2. **A failed enrollment must not brick the install.** The current design mints a
+   passphrase that exists only in installer RAM and on the encrypted disk, so a
+   failed enrollment produces an unanswerable prompt. Do not solve this by writing
+   the passphrase anywhere on disk — that defeats the encryption for a stolen
+   laptop, which is the entire threat model for a school. Solve it by **not
+   rebooting**: on enrollment failure, print the passphrase on the console with a
+   loud banner and halt, so the operator captures it before the machine leaves the
+   desk. An attended install is a precondition either way.
+3. **Then** find out which branch fired, from the ESP log, on the next attempt.
+
+### Test it at the desk first
+
+`swtpm` under qemu reproduces all of this — an emulated TPM 2.0 with Secure Boot
+is enough to exercise the probe, the enrollment and the auto-unlock, and it is
+the cheapest possible place to iterate on step 1. That is the same harness
+`…-tier2-boot-smoke-test.md` needs, which is an argument for building it before
+re-enabling FDE rather than after.

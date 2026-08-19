@@ -61,3 +61,80 @@ accounts on one image and everything it added is also unproven.
 
 The old "should staff get gnome-software" question is **dead** — the collapse answers
 it yes, gated by group. Do not re-open it from the archived spec.
+
+---
+
+## Update 2026-08-19 — three blockers moved, one new one appeared
+
+Run at the desk against a locally-built image, not on metal. What changed:
+
+**Now asserted at build time** (`ci/verify-image.sh`,
+`…-tier1-image-verification.md`) and no longer needing hardware:
+
+- `/etc/dconf/db/kiosk` is compiled and non-empty — and, more than the original
+  item asked, that it actually contains the lock keys from `00-svk-locks`. A db
+  that compiled from an unreadable source directory is valid and empty, so file
+  existence proved nothing.
+- `bootc-fetch-apply-updates.service` has **no `--apply`** on desktops.
+- The fleet-wide dconf `user` profile does not select the kiosk db (the
+  machine-wide-lockdown mistake CLAUDE.md warns about).
+
+**New blocker, ranked above most of this list:** first-boot preset policy
+disables 10 of the 11 units we enable — reproduced against the image on
+2026-08-19 (`…-unit-enablement-preset.md`). A preset file now ships and the
+simulation passes with it in place. What is **not** proven is whether a real
+Anaconda install triggers the first-boot path at all; that cannot be tested in a
+container (systemd skips first-boot setup entirely when it detects a container,
+so the obvious experiment silently answers "no"). It needs a VM or a machine.
+
+Add to this checklist, at the top, for the next install of any kind:
+
+- [ ] After first boot, all eleven units report `enabled`:
+      `systemctl is-enabled sshd avahi-daemon tailscaled svk-claim-hostname
+      bootc-fetch-apply-updates.timer svk-flatpak-update.timer
+      svk-power-profile reset-opilas-home svk-bluetooth-default-off
+      svk-luks-tpm-enroll svk-tailscale-enroll`
+- [ ] Run the same command on the EliteBook installed 2026-07-28. It predates the
+      preset file, so if the trap is real that machine has had no SSH, no
+      Tailscale and no automatic updates since the day it was installed — which
+      would also mean the fleet has never once been observed updating itself.
+
+**Also found, and fixed, without hardware:** power switching has never worked at
+all — Fedora 44 ships `tuned-ppd`, not `power-profiles-daemon`, and the script
+called a binary that does not exist while suppressing the error
+(`…-power-profile-tuned-ppd.md`). The checklist item for it stands; it would have
+been read as a hardware quirk.
+
+
+---
+
+## Update 2026-08-19 (second) — the first VM install actually ran
+
+Full account in `…-first-end-to-end-vm-install.md`. Against this checklist:
+
+**Closed by observation:**
+
+- [x] End-to-end ISO build + install — the automated LAB GRUB entry installs with
+      zero interaction and reboots. `anaconda.target` works; the 2026-07-21
+      `liveinst` failure does not recur.
+- [x] The eleven units are enabled after a real first boot.
+- [x] The account model: `opilas` 1002 + `admin` 1000 and no `staff` on a lab
+      install.
+- [x] The update origin is the signed ref.
+- [x] Power switching works (over tuned-ppd's D-Bus API, after the fix).
+
+**Newly broken, found only by installing:**
+
+- [ ] **The machine boots to a text console** — Anaconda sets the default target
+      to multi-user, GDM never starts. Fixed in the kickstart, **not yet
+      re-tested**. Until it is, every item on this list that needs a graphical
+      session is untestable, which is most of them.
+- [ ] **`svk-claim-hostname` never ran** — `ConditionFirstBoot` is never true on
+      this install path. Fixed in the unit, not yet re-tested.
+- [ ] `systemd-remount-fs.service` fails on every boot (fstab `ro` on the btrfs
+      root). Cosmetic today; it is a permanently failed unit on a fresh install.
+
+**Still untested, and now known to be untested:** everything downstream of a
+graphical session (`DCONF_PROFILE` timing, the lockdown, autologin, the per-account
+app restrictions), the flatpak bake (that ISO was built with no flatpaks), and all
+of FDE/TPM (still disabled).

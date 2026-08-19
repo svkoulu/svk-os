@@ -57,3 +57,42 @@ or physical console access. That confirmation step needs per-machine state — t
 "last successful upgrade" assertion above is what makes it possible.
 
 See the *Signing key* section in `README.md` for the rotation procedure itself.
+
+---
+
+## Update 2026-08-19 — infra has already built this; port it rather than write it
+
+`../infra` ships `boxctl`, a single on-box command with subcommands, of which
+`boxctl check` (778 lines) is exactly the assertion set described above:
+"every assertion the install checklists can automate", run on a machine with
+nothing but an SSH session. Alongside it: `boxctl status` (image, age, disk,
+tailnet — a readout with no verdict), `boxctl logs` (every infra unit's journal
+in one timeline), and shell completion that works under `sudo` and over a
+non-interactive `ssh` (a symlink plus a shipped completion file, which a shell
+alias would not).
+
+Three things in its design are worth taking whole:
+
+- **`check` asserts, `status` reports.** Keeping the verdict and the readout in
+  separate commands is what stops "check" growing into an unreadable dump.
+- **It is the same shape as the workstation-side `just`**, deliberately, so an
+  operator moving between the two is not learning a second vocabulary.
+- **Report, never repair** — which is the conclusion this task already reached
+  independently, for the same reason (on bootc a broken state is fixed by
+  shipping an image, so a repairing check hides drift instead of surfacing it).
+
+Two of the assertions listed above have since moved to build time and should be
+*removed* from svk-check rather than duplicated: the dconf db being compiled and
+non-empty, and `cosign.pub` matching, are both now asserted by
+`ci/verify-image.sh` on every build (`…-tier1-image-verification.md`). An
+assertion that can be made about the image should not be made per-machine — that
+is checking the wrong thing in the wrong place.
+
+What remains genuinely per-machine, and is the real value here: last successful
+upgrade, the bootc origin, TPM enrollment state, the installed flatpak set, the
+tailscale state, **and — new since this file was written — whether the eleven
+units are actually enabled** (`…-unit-enablement-preset.md`; on an installed
+machine that is not a build-time property).
+
+The cadence note above is stale: student-monthly / staff-weekly was collapsed to
+one weekly cadence for the whole fleet.

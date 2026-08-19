@@ -94,3 +94,42 @@ hardcoded to `svk-server.local:8080` the way the archived script had it.
   staff laptop, and fails cleanly (logged, non-zero, no fabricated log line) on a
   lab machine with no internet — not a hang.
 - First boot with no network at all still completes without the unit erroring.
+
+---
+
+## Update 2026-08-19 — operator wants to reconsider baking them into the ISO at all
+
+Noted while running the first local ISO build: the flatpak bake is **the single
+most expensive thing in the pipeline**. Measured on this hardware, the installer
+image is ~17 GB with the 16-app set and ~9 GB without it, and the download
+dominates the build time. It also means every ISO rebuild re-downloads the whole
+set, and an app update requires a new ISO to keep the baked copy current.
+
+The operator's preference (2026-08-19) is Aeon's shape instead: **install the
+flatpak set after first boot, from the mirror**, rather than baking it into the
+installer. Deliberately deferred until the install path itself is proven — do not
+touch it during bring-up — but it changes the ordering of this task's work,
+because the mirror stops being an *update* path and becomes the *install* path.
+
+What that would change, to think about when this is picked up:
+
+- **First boot is no longer offline**, which was the original reason for baking
+  (`CLAUDE.md`: "First boot is fully offline"). A lab machine provisioned in a
+  room with no working LAN would come up with no apps. Whether that is acceptable
+  depends on whether provisioning always happens on-site with the server up — it
+  does today, but that is a fact about our process, not about the image.
+- **The failure becomes visible and recoverable**, which is the argument for it: a
+  missing app after first boot is a `flatpak install` away, whereas a bad bake is
+  a rebuilt ISO and a reinstall.
+- The **never-add list** and the curation stay exactly as they are — they move
+  from a build input to a first-boot input.
+- It removes the ISO's dependency on Flathub reachability at build time, which is
+  currently an undeclared build-time network dependency that CLAUDE.md's own
+  "avoid build-time network dependencies that aren't the registry itself" rule
+  would otherwise forbid. That is not theoretical: on 2026-08-19 an ISO build died
+  twenty minutes in on a single timed-out LibreOffice object. The bake now retries
+  per app, which makes the failure rarer without making it impossible.
+
+Sequencing: prove the install (`…-hardware-validation.md`), then the mirror
+(this task), then move the set to first boot — not the other way round, because
+first-boot installation with no mirror is strictly worse than what exists.
