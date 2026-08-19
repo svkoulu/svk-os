@@ -182,7 +182,14 @@ if [ -f /tmp/local-image/image.tar ]; then
     TMPDIR=/var/tmp skopeo copy \
         "oci-archive:/tmp/local-image/image.tar" "oci:${INSTALL_IMAGE_DIR}:${IMAGE_TAG}"
 else
-    skopeo copy "docker://${IMAGE_REPO}:${IMAGE_TAG}" "oci:${INSTALL_IMAGE_DIR}:${IMAGE_TAG}"
+    # --remove-signatures: registries.d marks ghcr.io/svkoulu as using sigstore
+    # attachments, so skopeo fetches the cosign signature along with the image and
+    # then dies trying to write it — an OCI layout has nowhere to put one. Dropping
+    # it costs nothing: the kickstart installs from this layout with
+    # --no-signature-verification, and the installed system verifies against ghcr,
+    # where the signature still lives.
+    skopeo copy --remove-signatures \
+        "docker://${IMAGE_REPO}:${IMAGE_TAG}" "oci:${INSTALL_IMAGE_DIR}:${IMAGE_TAG}"
 fi
 mv /tmp/svk-policy.json /etc/containers/policy.json
 # Read it back the way the kickstart will ask for it: a layout that only fails at
