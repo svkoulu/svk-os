@@ -1,9 +1,8 @@
 # Tier 1 — static verification of the built image in CI
 
-Status: **implemented 2026-08-19** (`ci/verify-image.sh`, 60-odd checks, green
-against a local build except the findings it was written to catch). Open half:
-**wire it into `.github/workflows/build-images.yml`** so it gates every push, and
-decide whether CI should call it via the Justfile.
+Status: **done 2026-08-19** (822f780). `ci/verify-image.sh`, 60-odd checks, green
+against a local build except the findings it was written to catch — and now wired
+into the build so it gates every push, with a `just verify` recipe for the desk.
 
 Ported from `../infra/ci/verify-image.sh`, which is the same idea for a fleet
 with the same problem (a custom image, an unreachable machine, a failure that
@@ -71,11 +70,15 @@ Grouped as it prints:
 
 - [x] `ci/verify-image.sh` written, shellcheck-clean
 - [x] Green against a local `just build-os` (bar the real findings)
-- [ ] `just verify` recipe
-- [ ] Called from `.github/workflows/build-images.yml` after the build, **before**
-      the push — a failed verify must not publish
-- [ ] Decide the CI/Justfile question: today CI deliberately does not use the
-      Justfile, so verification would be duplicated in YAML. infra went the other
-      way (`../infra/tasks/done/just-recipes-work-in-ci.md`) precisely so the desk
-      and CI cannot drift. Recommend following it for the *verification* recipes
-      at least, since those are the ones where drift is invisible.
+- [x] `just verify image="localhost/svk-os:latest"` recipe
+- [x] Called after the build, **before** the push — as the `Verify (tier 1)` step
+      in `.github/actions/build-image/action.yml`, which is what
+      `build-images.yml` runs. A failed verify aborts the job and nothing is
+      pushed. It verifies the first of the computed tags, i.e. the exact image
+      the push would publish.
+- [x] The CI/Justfile question, decided: **neither side reimplements anything** —
+      `just verify` and the CI step both exec `ci/verify-image.sh`, so there is
+      one implementation and no YAML copy of it. That is what infra's
+      `just-recipes-work-in-ci.md` was protecting against; routing CI through
+      `just` as well would only add a tool to the runner. The rule to keep: the
+      checks live in the script, never in the recipe or the workflow.

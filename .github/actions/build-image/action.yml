@@ -125,7 +125,7 @@ runs:
       # units enabled and carried by the preset, the lockdown db non-empty, the
       # baked signing key identical to the repo's, no --apply on the desktop
       # update path, every command our scripts call actually installed. See
-      # ci/verify-image.sh and tasks/todo/…-tier1-image-verification.md.
+      # ci/verify-image.sh and tasks/done/…-tier1-image-verification.md.
       #
       # A failure here must NOT publish: bootc container lint proves the image is
       # a well-formed bootc image, not that it is OUR image.
