@@ -6,6 +6,9 @@ cosign.key
 output/
 *.iso
 iso/.build/
+# OCI archive of the locally-built image, staged for the installer's nested copy
+# by `iso/build-iso.sh local` and deleted again when it exits. Image-sized.
+iso/.local-image/
 # Per-build provenance sidecar written next to each ISO (iso/build-iso.sh). Not a
 # secret, but a build output — belongs in the CI artifact, not in git.
 iso/*.build-info.json

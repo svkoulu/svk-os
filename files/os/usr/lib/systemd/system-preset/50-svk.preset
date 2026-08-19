@@ -1,0 +1,59 @@
+# 50-svk.preset — the second, permanent statement of "these units are on".
+#
+# This file duplicates the `systemctl enable` list in build/20-services.sh on
+# purpose. Neither one covers the other's case:
+#
+#   * `systemctl enable` writes symlinks under /etc. On the FIRST boot of a
+#     deployment with a fresh /etc — which is what an Anaconda/kickstart install
+#     produces — systemd applies preset policy over that /etc and DELETES them.
+#     Reproduced offline against a built image on 2026-08-19: `systemctl
+#     preset-all` turns 10 of our 11 units off, sshd and tailscaled included,
+#     because Silverblue ships `disable *` (99-default-disable.preset) and an
+#     explicit `disable sshd.service` (81-desktop.preset).
+#   * This file lives in /usr, is part of the image, and is what that policy
+#     READS instead of overwrites — but preset policy never runs again on an
+#     established /etc, so it cannot enable anything on a machine that has
+#     already booted once.
+#
+# So: this file carries every fresh /etc, and the /etc symlinks carry every
+# machine already installed. Deleting the `systemctl enable` calls is therefore
+# NOT a cleanup — ostree 3-way-merges /etc on update, and a symlink present in
+# the old commit and absent in the new one is REMOVED from the live machine.
+# Shipping that deletion would turn sshd, the update timers and the kiosk units
+# off across the fleet in one update.
+#
+# The two lists are kept in step by ci/verify-image.sh, which fails the build if
+# a unit is enabled in build/20-services.sh without a line here (and vice versa).
+#
+# Numbered 50- deliberately: preset files are evaluated in lexicographic order
+# and the FIRST match wins, so this must sort ahead of Silverblue's
+# 81-desktop.preset (`disable sshd.service`) and 99-default-disable.preset
+# (`disable *`).
+
+# Remote admin. Key-only; 81-desktop.preset disables it, we re-enable it.
+enable sshd.service
+
+# LAN identity: mDNS advertising (.local) and the first-boot hostname claim.
+enable avahi-daemon.service
+enable svk-claim-hostname.service
+
+# Tailscale. tailscaled is enabled everywhere but only `up`s where
+# TAILSCALE_ENROLL=yes in /etc/svk/tailscale.conf.
+enable tailscaled.service
+enable svk-tailscale-enroll.service
+
+# Disk encryption: first-boot TPM2 enrollment + on-screen recovery key.
+# Self-disables once enrolled; no-op on an unencrypted install.
+enable svk-luks-tpm-enroll.service
+
+# Automatic updates. Both are opt-in upstream, so both must be stated.
+enable bootc-fetch-apply-updates.timer
+enable svk-flatpak-update.timer
+
+# Power profile switching (AC/battery).
+enable svk-power-profile.service
+
+# Kiosk units. Enabled on every machine; their ExecCondition makes them skip
+# cleanly where the `opilas` account does not exist.
+enable reset-opilas-home.service
+enable svk-bluetooth-default-off.service

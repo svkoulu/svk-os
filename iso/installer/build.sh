@@ -174,7 +174,24 @@ echo '{"default":[{"type":"insecureAcceptAnything"}]}' > /etc/containers/policy.
 # layer missing from storage ("layer not known" from `ostree container image
 # deploy` at install time — confirmed via packaging.log from a real install).
 # A plain pull reliably writes every layer into primary storage itself.
-podman pull "${IMAGE_REPO}:${IMAGE_TAG}"
+#
+# LOCAL BUILDS take the other branch: iso/build-iso.sh saves the locally-built
+# svk-os to an OCI archive and bind-mounts it in (bind, not COPY, so the 6-odd GB
+# never becomes an image layer). Without this, `iso/build-iso.sh local` built an
+# ISO whose live environment came from the local image but whose INSTALLED SYSTEM
+# came from ghcr.io/svkoulu/svk-os:stable — so a local change could not be tested
+# by installing it, and the build failed outright while no :stable tag existed
+# (found 2026-08-19). The tag it is loaded under is the real registry ref, so the
+# kickstart below and the installed machine's origin are byte-identical to a
+# production build.
+if [ -f /tmp/local-image/image.tar ]; then
+    echo "svk installer: loading the locally-built image instead of pulling ${IMAGE_REPO}:${IMAGE_TAG}"
+    loaded="$(podman load -q -i /tmp/local-image/image.tar | sed -n 's/^Loaded image: //p' | head -1)"
+    [ -n "$loaded" ] || { echo "podman load produced no image name" >&2; exit 1; }
+    podman tag "$loaded" "${IMAGE_REPO}:${IMAGE_TAG}"
+else
+    podman pull "${IMAGE_REPO}:${IMAGE_TAG}"
+fi
 mv /tmp/svk-policy.json /etc/containers/policy.json
 
 ### Kickstarts ################################################################
@@ -254,6 +271,7 @@ cat <<EOF
 
 ostreecontainer --url=${IMAGE_REPO}:${IMAGE_TAG} --transport=containers-storage --no-signature-verification
 %include /usr/share/anaconda/post-scripts/svk-configure-upgrade.ks
+%include /usr/share/anaconda/post-scripts/svk-default-target.ks
 %include /usr/share/anaconda/post-scripts/svk-disable-fedora-flatpak.ks
 %include /usr/share/anaconda/post-scripts/svk-install-flatpaks.ks
 %include /usr/share/anaconda/post-scripts/svk-flatpak-selinux.ks
@@ -409,6 +427,7 @@ timezone Europe/Helsinki --utc
 
 ostreecontainer --url=${IMAGE_REPO}:${IMAGE_TAG} --transport=containers-storage --no-signature-verification
 %include /usr/share/anaconda/post-scripts/svk-configure-upgrade.ks
+%include /usr/share/anaconda/post-scripts/svk-default-target.ks
 %include /usr/share/anaconda/post-scripts/svk-disable-fedora-flatpak.ks
 %include /usr/share/anaconda/post-scripts/svk-install-flatpaks.ks
 %include /usr/share/anaconda/post-scripts/svk-flatpak-selinux.ks
@@ -420,6 +439,24 @@ EOF
 tee /usr/share/anaconda/post-scripts/svk-configure-upgrade.ks <<EOF
 %post --erroronfail
 bootc switch --mutate-in-place --enforce-container-sigpolicy --transport registry ${IMAGE_REPO}:${IMAGE_TAG}
+%end
+EOF
+
+# Put the default target back to graphical.
+#
+# Anaconda writes /etc/systemd/system/default.target -> multi-user.target into the
+# installed system. With an ostreecontainer payload it has no package selection to
+# infer a desktop from, so it takes the text default and overrides the image's own
+# /usr/lib/systemd/system/default.target -> graphical.target.
+#
+# The consequence is not subtle, and is invisible until a machine is installed: GDM
+# is enabled and never starts, and the machine — lab or staff — comes up at a text
+# login prompt. No autologin, no kiosk session, no desktop. Observed on the first
+# end-to-end VM install, 2026-08-19. Nothing in the build or the image can catch
+# it, because the image is right and the installer changes it afterwards.
+tee /usr/share/anaconda/post-scripts/svk-default-target.ks <<'EOF'
+%post --erroronfail
+systemctl set-default graphical.target
 %end
 EOF
 
@@ -517,8 +554,35 @@ EOF
 # SYSTEM scope (/var/lib/flatpak), which is what makes them survive an opilas home
 # reset and what lets a teacher's later system-scope install reach the kiosk too.
 curl --retry 3 -Lo /etc/flatpak/remotes.d/flathub.flatpakrepo https://dl.flathub.org/repo/flathub.flatpakrepo
-sed 's/#.*//' /tmp/flatpaks/common.list | tr -d '[:blank:]' | grep -v '^$' | sort -u \
-    | xargs -r flatpak install -y --noninteractive --system flathub
+# `grep -v` exits 1 on an empty result and `set -o pipefail` turns that into a
+# failed build, so an all-commented list (a deliberately app-free test ISO, or the
+# state this would pass through if the set moves to first-boot installation —
+# tasks/todo/…-lan-mirror-flatpak-wiring.md) aborted the whole installer build
+# instead of baking nothing. `|| true` on the filter keeps that harmless.
+mapfile -t svk_flatpaks < <(sed 's/#.*//' /tmp/flatpaks/common.list | tr -d '[:blank:]' | { grep -v '^$' || true; } | sort -u)
+
+# One app at a time, with retries, rather than one `xargs flatpak install` for the
+# whole list. This step is a multi-GB download from Flathub and it is the ONLY
+# build-time network dependency that is not the registry — CLAUDE.md's own rule
+# says to avoid those, and this is why: a single object timing out
+# ("[28] Timeout was reached" on LibreOffice, 2026-08-19) failed the entire ISO
+# build twenty minutes in, with every other app already downloaded and thrown away.
+# Per-app retry turns a blink into a pause. It does not make the dependency go
+# away — moving the set to first-boot installation from the LAN mirror does
+# (tasks/todo/…-lan-mirror-flatpak-wiring.md).
+for app in "${svk_flatpaks[@]:-}"; do
+    [ -n "$app" ] || continue
+    installed=0
+    for attempt in 1 2 3; do
+        if flatpak install -y --noninteractive --system flathub "$app"; then
+            installed=1
+            break
+        fi
+        echo "svk installer: flatpak install ${app} failed (attempt ${attempt}/3); retrying" >&2
+        sleep $(( attempt * 10 ))
+    done
+    [ "$installed" = 1 ] || { echo "svk installer: giving up on ${app}" >&2; exit 1; }
+done
 
 ### Live-boot support (dracut-live: dmsquash-live mounts the squashfs at boot) ##
 dnf5 install -y dracut-live

@@ -23,10 +23,50 @@ Titanoboa's own interface changed upstream.
 | `flatpaks/common.list` | the fleet app set, baked into the ISO (system scope) |
 | `iso/installer/Containerfile` | builds the throwaway installer image `FROM` the real `svk-os` image |
 | `iso/installer/build.sh` | installs Anaconda (+`tmux`, needed by `anaconda.service`) and the on-site repair kit, writes **both role kickstarts** (localization + auto-partition + LUKS, `bootc switch`es the origin to the signed registry ref, rsyncs the baked `/var/lib/flatpak` onto the target — **no Secure Boot enrollment**, N4), pre-installs the flatpak set into `/var/lib/flatpak`, adds `dracut-live`/`livesys-scripts` for live-boot, and writes `iso.yaml` |
-| `iso/build-iso.sh` | wrapper: get `svk-os` into root's podman storage, build the installer image, run pinned Titanoboa against it, collect the ISO |
+| `iso/build-iso.sh` | wrapper: get `svk-os` into root's podman storage (and, for a local build, export it to `iso/.local-image/` for the installer's nested copy), build the installer image, run pinned Titanoboa against it, collect the ISO |
 | `files/os/usr/libexec/svk/luks-tpm-enroll` (+ `.service`) | first-boot: TPM2 auto-unlock enrollment + on-screen per-machine recovery key (shipped in the OS image, not the ISO) |
 | `files/os/usr/libexec/svk/tpm2-capable` | the TPM2 capability probe both the install-time `%post` and the first-boot service gate on (device **and** `PolicyAuthorizeNV`) |
 | `.github/workflows/iso.yml` | the ISO build — reusable (called by `build.yml` per channel) and `workflow_dispatch` |
+
+## `local` vs `ghcr`
+
+`iso/build-iso.sh ghcr` builds an ISO around the published image; `... local`
+builds one around whatever `just build-os` last produced. The distinction is
+easy to get wrong, because two different images are involved:
+
+- the **live environment** the ISO boots (the installer image, built `FROM` the
+  target), and
+- the **installed system**, which Anaconda deploys from a discretely-tagged copy
+  sitting in the installer image's own `containers-storage`.
+
+Building `FROM` an image gives you the first but not the second — same file
+content, no separate image entry for Anaconda to install. So the installer build
+has to put that copy there explicitly. Until 2026-08-19 it did so with an
+unconditional `podman pull` of the ghcr ref, which meant **`local` did not
+actually test local content**: the live environment was yours, the installed
+system was ghcr's `:stable`, and while no `:stable` tag existed the build simply
+failed. Now a local build exports the image to `iso/.local-image/image.tar`
+(bind-mounted into the installer build, never a layer, deleted on exit) and loads
+it under the real registry ref, so the kickstart and the installed machine's
+update origin stay identical to a production build.
+
+Consequence worth knowing before you start one: a local ISO build writes the
+image **three** times — the local build itself, the root-storage copy, and the
+archive — on top of a multi-GB installer image and the squashfs/ISO output.
+Measured on 2026-08-19, x86_64, with the 16-app flatpak set:
+
+| step | on-disk cost |
+|---|---|
+| `just build-os` | ~6.5 GB |
+| OCI archive for the nested copy (deleted on exit) | ~2.7 GB |
+| installer image (Anaconda + flatpaks + the nested copy) | **~17 GB** |
+| squashfs + ISO output | ~12-15 GB |
+| the VM you then install into | ~10 GB |
+
+So **~45 GB free** is the realistic figure for build-and-test on one machine, and
+a run that starts with less will die somewhere in the middle — a build killed
+during `COMMIT` leaves the whole thing in a buildah working container that
+`podman rm --storage` has to clear by hand.
 
 ## Dependencies
 

@@ -109,6 +109,28 @@ CI builds the same image via `.github/workflows/build.yml` (which uses a composi
 action, not this Justfile) and cosign-signs each with the `COSIGN_PRIVATE_KEY`
 secret.
 
+### Verify a build
+
+```bash
+just verify                     # tier 1: static checks against localhost/svk-os:latest
+```
+
+`ci/verify-image.sh` asserts the things whose failure is otherwise invisible until
+a machine is wrong: that every unit we enable survives **first-boot preset
+policy** (see below), that the kiosk dconf db compiled with its locks in it, that
+the baked `cosign.pub` matches this repo's, that no `--apply` survives on the
+desktop update path, and that every command the shipped scripts call is actually
+installed. CI runs it after the build and **before** the push, so a failure does
+not publish. It does not prove the machine boots — that is tier 2, which does not
+exist yet (`tasks/todo/…-tier2-boot-smoke-test.md`).
+
+**Units are enabled in two places on purpose.** `build/20-services.sh` runs
+`systemctl enable` (symlinks in `/etc`, which is what keeps already-installed
+machines running) and `files/os/usr/lib/systemd/system-preset/50-svk.preset`
+lists the same units (which is what survives the first boot of a fresh `/etc`,
+where preset policy would otherwise disable all but one of them). Removing either
+list breaks a different set of machines; `just verify` fails if they disagree.
+
 ## Add / remove packages & apps
 
 - **RPM packages** (system-wide): edit the `dnf5 install` list in

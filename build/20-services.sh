@@ -3,6 +3,13 @@
 set -euo pipefail
 
 echo "::group:: Enable services"
+# EVERY unit enabled here must ALSO have an `enable` line in
+# files/os/usr/lib/systemd/system-preset/50-svk.preset. The two are not
+# redundant: these symlinks live in /etc and hold up machines already installed,
+# while the preset lives in /usr and is the only thing that survives the first
+# boot of a fresh /etc (an Anaconda install), where preset policy deletes every
+# symlink here. ci/verify-image.sh fails the build if the two lists disagree.
+# Read the preset file's header before changing either.
 # Tailscale daemon + first-boot enrolment. Whether a machine actually enrols is
 # decided by TAILSCALE_ENROLL in /etc/svk/tailscale.conf (default "no"), not by
 # the image — tailscaled is left enabled but never `up`s unless opted in.

@@ -44,17 +44,30 @@ build/                                       # svk-os's build scripts, run in or
   40-desktop.sh                              #   dconf dbs, the per-account app matrix, hidden-launcher sets, CA trust
   clean-stage.sh / copr-helpers.sh           #   build-artifact cleanup / COPR helpers
 files/os/                                    # static tree COPY'd to image "/"
+ci/verify-image.sh                           # tier 1: static checks against a built image (CI runs it before the push)
 flatpaks/common.list                         # the flatpak set baked into the ISO (+ a never-add list)
 iso/                                         # Titanoboa ISO pipeline (build-iso.sh, installer/)
 custom/                                      # ujust recipes shipped into the image
 cosign.{pub,key}                             # image-signing keypair (.key gitignored)
 archived/                                    # the previous FROM-bluefin implementation, for reference
-Justfile                                     # local build + setup commands (CI does NOT use it)
+Justfile                                     # local build + setup commands (CI uses only ci/, not this)
 .github/actions/build-image/                 # shared build+sign+push composite action
 .github/workflows/build.yml                  # router: picks channel(s) per event (git tag/main/cron/dispatch)
 .github/workflows/build-images.yml           # reusable: builds the image for one channel from one ref
 .github/workflows/iso.yml                    # the installer ISO (Titanoboa) — one ISO, both roles
 ```
+
+**Unit enablement is stated twice, permanently.** `build/20-services.sh` calls
+`systemctl enable` (symlinks in `/etc`) *and*
+`files/os/usr/lib/systemd/system-preset/50-svk.preset` lists the same units.
+Neither covers the other's case: the symlinks are what hold up a machine that has
+already booted and takes updates, and the preset is the only thing that survives
+the **first** boot of a fresh `/etc` — where preset policy would otherwise delete
+every symlink (`disable *`, plus an explicit `disable sshd.service` from
+Silverblue's `81-desktop.preset`; reproduced 2026-08-19, 10 of 11 units off).
+Deleting the `enable` calls is not a cleanup but a fleet-wide outage, because
+ostree 3-way-merges `/etc` and would remove the symlinks from every installed
+machine. `ci/verify-image.sh` fails the build if the two lists disagree.
 
 `Containerfile.os` is **multi-stage**: a `scratch` `ctx` stage gathers `build/` + `custom/`, then the final stage is Silverblue-pinned-by-digest; build logic runs via `RUN --mount=type=bind,from=ctx …` calling each `build/NN-*.sh`, then `clean-stage.sh`, then `bootc container lint --fatal-warnings`. Keep install/config logic in the numbered `build/` scripts, not in the Containerfile.
 

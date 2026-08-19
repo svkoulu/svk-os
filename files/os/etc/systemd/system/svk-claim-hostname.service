@@ -1,14 +1,23 @@
 # Claims a fleet hostname the first time a machine boots. Enabled in
-# build.base.sh; guarded by a stamp file so it's a no-op afterwards.
+# build/20-services.sh and 50-svk.preset; guarded by a stamp file so it is a
+# no-op afterwards.
 [Unit]
 Description=Claim a fleet hostname from the svk server
 # Needs the network up. If you enroll Tailscale before this runs (recommended,
 # since the dispenser is reachable over the tailnet), keep tailscaled here.
 After=network-online.target tailscaled.service
 Wants=network-online.target
-# ConditionFirstBoot also short-circuits on subsequent boots; the stamp file in
-# the script is the belt-and-braces guard.
-ConditionFirstBoot=yes
+# NO ConditionFirstBoot here, deliberately. It looks like the obvious guard and it
+# silently disables this unit forever on the machines we actually ship: after an
+# Anaconda ostree install, /etc/machine-id is already populated by the time systemd
+# evaluates conditions, so ConditionFirstBoot is NEVER true and the unit is skipped
+# on every boot. Observed on the first end-to-end VM install (2026-08-19): the
+# machine kept the installer's hostname, and the journal recorded a clean "skipped,
+# unmet condition check" that reads like normal behaviour.
+#
+# The stamp file is the correct guard, and it is sufficient: it asks "has this
+# machine ever claimed a name", which is the actual question, rather than "is this
+# the first boot", which is a proxy that does not hold here.
 ConditionPathExists=!/var/lib/svk/.hostname-claimed
 
 [Service]

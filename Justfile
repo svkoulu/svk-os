@@ -95,7 +95,18 @@ placeholders:
 # Shellcheck the build scripts.
 [group('utility')]
 lint:
-    shellcheck build/*.sh iso/*.sh iso/installer/build.sh
+    shellcheck build/*.sh ci/*.sh iso/*.sh iso/installer/build.sh
+
+# Checks unit enablement against first-boot preset policy, the kiosk dconf db,
+# the baked signing key and policy.json, the update cadence, and that every
+# command the shipped scripts call actually exists. Runs in CI too, before the
+# push. Does NOT prove the machine boots — that is tier 2, which does not exist
+# yet (tasks/todo/…-tier2-boot-smoke-test.md).
+#
+# Tier 1: static verification of a built image.
+[group('utility')]
+verify image="localhost/svk-os:latest":
+    ci/verify-image.sh {{ image }}
 
 # Remove the locally-built svk-os image.
 [group('utility')]

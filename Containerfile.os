@@ -16,8 +16,16 @@ FROM scratch AS ctx
 COPY build /build
 COPY custom /custom
 
-# --- base: raw Fedora Silverblue, pinned by digest (Renovate keeps it current). ---
-FROM quay.io/fedora-ostree-desktops/silverblue:44@sha256:b21b78d67bdba02aa551bebbb2f67278cb2f72a3c87f43148a25f3dd325bc663
+# --- base: raw Fedora Silverblue, pinned by digest.
+#
+# BUMP THIS WHEN IT ROTS, AND NOTICE THAT IT DOES. On 2026-08-19 the previously
+# pinned digest (…b21b78d6) had been garbage-collected from quay.io: every build
+# failed with "manifest unknown", which means the weekly rebuild — the entire
+# mechanism by which security fixes reach the fleet — had been dead, silently, for
+# as long as nobody looked. A pinned digest is not a stable artifact; upstream
+# prunes them. Something has to bump it, and something has to shout when a build
+# fails (tasks/todo/…-ci-failure-alerting.md). ---
+FROM quay.io/fedora-ostree-desktops/silverblue:44
 
 # Image identity — makes bootc / fastfetch report svk, not Fedora.
 ARG IMAGE_NAME="svk-os"

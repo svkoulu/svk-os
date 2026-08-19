@@ -35,7 +35,12 @@ ARG ISO_GIT_SHA=""
 
 COPY flatpaks/ /tmp/flatpaks/
 COPY iso/installer/build.sh /tmp/build.sh
+# iso/.local-image/ holds an OCI archive of the locally-built svk-os for a
+# `iso/build-iso.sh local` run, and is EMPTY for a ghcr build (build.sh pulls
+# instead). Bind-mounted rather than COPY'd: the archive is the size of the whole
+# image and must not become a layer of this one.
 RUN --mount=type=cache,dst=/var/cache/libdnf5 \
+    --mount=type=bind,source=iso/.local-image,target=/tmp/local-image \
     IMAGE_REF="${IMAGE_REF}" VERSION="${VERSION}" \
     STAFF_PASSWORD="${STAFF_PASSWORD}" ISO_GIT_SHA="${ISO_GIT_SHA}" \
     bash /tmp/build.sh \

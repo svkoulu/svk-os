@@ -1,10 +1,16 @@
-# Sets the power profile to match the AC/battery state. Enabled in build.base.sh
-# so it runs once at boot (initial state); the udev rule
-# (99-svk-power-profile.rules) starts it again on every AC plug/unplug.
+# Sets the power profile to match the AC/battery state. Enabled in
+# build/20-services.sh (and 50-svk.preset) so it runs once at boot for the
+# initial state; the udev rule (99-svk-power-profile.rules) starts it again on
+# every AC plug/unplug.
+#
+# Ordered after tuned-ppd, NOT power-profiles-daemon: Fedora 44 Silverblue ships
+# tuned-ppd, which provides the same net.hadess.PowerProfiles D-Bus API under a
+# different unit name. The old ordering named a unit that does not exist in this
+# base, so the profile was set before anything could answer (2026-08-19).
 [Unit]
 Description=svk: match power profile to AC/battery state
-After=power-profiles-daemon.service
-Wants=power-profiles-daemon.service
+After=tuned-ppd.service
+Wants=tuned-ppd.service
 
 [Service]
 Type=oneshot

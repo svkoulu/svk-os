@@ -71,10 +71,26 @@ esac
 # :latest is a moving tag, so a stale check would silently keep building the ISO
 # from whatever old content a previous run last copied in, never picking up a
 # rebuilt local image.
+# iso/.local-image/ is bind-mounted into the installer build (see
+# iso/installer/Containerfile). For a ghcr build it stays empty and the installer
+# pulls the published image; for a local build it carries an OCI archive of the
+# image we just built, which is the ONLY way a local build actually installs
+# local content — the installer image bakes a discretely-tagged copy of the
+# target into its own containers-storage, and building FROM the image does not
+# provide one. Before 2026-08-19 `local` silently installed ghcr's :stable
+# instead, and failed outright while no such tag existed.
+LOCAL_IMAGE_DIR="${REPO_ROOT}/iso/.local-image"
+rm -rf "$LOCAL_IMAGE_DIR"; mkdir -p "$LOCAL_IMAGE_DIR"
+# The archive is image-sized (multi-GB) and pure build input — never leave it
+# behind, on success or failure.
+trap 'kill "$SUDO_KEEPALIVE_PID" 2>/dev/null || true; rm -rf "$LOCAL_IMAGE_DIR"' EXIT
+
 if [ "$repo" = "ghcr" ]; then
     sudo "$PODMAN" pull "$BASE_IMAGE"
 else
     podman image scp "$(id -un)@localhost::${BASE_IMAGE}" "root@localhost::${BASE_IMAGE}"
+    echo "Exporting ${BASE_IMAGE} for the installer's nested copy (multi-GB, one-off)..."
+    podman save --format oci-archive -o "${LOCAL_IMAGE_DIR}/image.tar" "$BASE_IMAGE"
 fi
 
 # --- 2. Build the throwaway installer image ------------------------------------
