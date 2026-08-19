@@ -76,10 +76,9 @@ esac
 # iso/installer/Containerfile). For a ghcr build it stays empty and the installer
 # pulls the published image; for a local build it carries an OCI archive of the
 # image we just built, which is the ONLY way a local build actually installs
-# local content — the installer image bakes a discretely-tagged copy of the
-# target into its own containers-storage, and building FROM the image does not
-# provide one. Before 2026-08-19 `local` silently installed ghcr's :stable
-# instead, and failed outright while no such tag existed.
+# local content — the installer image bakes its own copy of the target as an OCI
+# layout for Anaconda to install from, and building FROM the image does not
+# provide one (same content, no manifest/config).
 LOCAL_IMAGE_DIR="${REPO_ROOT}/iso/.local-image"
 rm -rf "$LOCAL_IMAGE_DIR"; mkdir -p "$LOCAL_IMAGE_DIR"
 # The archive is image-sized (multi-GB) and pure build input — never leave it
@@ -89,7 +88,7 @@ trap 'rm -rf "$LOCAL_IMAGE_DIR"' EXIT
 if [ "$repo" = "ghcr" ]; then
     podman pull "$BASE_IMAGE"
 else
-    echo "Exporting ${BASE_IMAGE} for the installer's nested copy (multi-GB, one-off)..."
+    echo "Exporting ${BASE_IMAGE} for the installer's baked install payload (multi-GB, one-off)..."
     podman save --format oci-archive -o "${LOCAL_IMAGE_DIR}/image.tar" "$BASE_IMAGE"
 fi
 

@@ -148,57 +148,52 @@ btrfs_compression = zstd:1
 use_geolocation = False
 EOF
 
-### Populate this image's own containers-storage with the install target #######
-# `ostreecontainer --transport=containers-storage` (below) installs from a copy
-# already sitting in local container storage — no network needed at install
-# time. That copy has to be put there at BUILD time: building `FROM` the target
-# image only gives this installer image the same filesystem content, not a
-# separate, discretely-tagged image entry for Anaconda to find. Nested podman
-# (enabled by --cap-add sys_admin on the outer `podman build`) pulls it in.
-# Requires the ref to already be published and pullable (ghcr packages public,
-# or credentials available) — matches Bazzite's installer/build.sh pattern.
+### Install payload: svk-os as an OCI layout ###################################
+# The kickstarts install from this copy, which is what makes the install offline.
+# Building FROM the target image is not enough: it gives this image the same file
+# content, but none of the manifest/config Anaconda needs to reconstruct an ostree
+# deployment.
 #
-# The nested pull inherits THIS filesystem's own strict /etc/containers/policy.json
-# (cosign-signed-only for ghcr.io/svkoulu), which rejects it — sigstore-attachment
-# discovery doesn't verify the same way from inside a nested build. Swap in a
-# permissive policy just for this internal fetch: the kickstart's own install step
-# already does `--no-signature-verification` explicitly, and the INSTALLED system's
-# real policy.json comes from the deployed svk-os content itself, not from
-# anything in this throwaway installer image, so this has no effect on the fleet's
-# actual signature enforcement.
+# The copy stays packed — a layout is layer tarballs plus an index.json, ordinary
+# files. Unpacking it here into a containers-storage tree cannot work: every
+# deletion in the image becomes a real whiteout object, which fuse-overlayfs (what
+# nested podman falls back to) refuses to create, and which an overlay-driver host
+# eats when committing this image's layer.
+#
+# A layout DIRECTORY, not an oci-archive: an archive is extracted to /var/tmp
+# before it can be read, and at install time that is the live environment's, a few
+# GB inside a squashfs.
+command -v skopeo >/dev/null 2>&1 || dnf5 install -y skopeo
+
+# Every ostreecontainer --url below is built from this, so the path cannot drift.
+INSTALL_IMAGE_DIR="/var/lib/svk/install-image"
+mkdir -p "$INSTALL_IMAGE_DIR"
+
+# This filesystem's policy.json requires a cosign signature for ghcr.io/svkoulu,
+# which doesn't verify from inside a build. Swap it out for the copy only: the
+# kickstart passes --no-signature-verification anyway, and the installed system's
+# policy comes from the deployed image, not from this throwaway one.
 cp /etc/containers/policy.json /tmp/svk-policy.json
 echo '{"default":[{"type":"insecureAcceptAnything"}]}' > /etc/containers/policy.json
-# Always a fresh, direct pull — no reuse-from-host-storage shortcut. A prior
-# `save | load --storage-opt additionalimagestore=''` version of this reload,
-# from a read-only bind-mounted additional store, produced an image with a
-# layer missing from storage ("layer not known" from `ostree container image
-# deploy` at install time — confirmed via packaging.log from a real install).
-# A plain pull reliably writes every layer into primary storage itself.
-#
-# LOCAL BUILDS take the other branch: iso/build-iso.sh saves the locally-built
-# svk-os to an OCI archive and bind-mounts it in (bind, not COPY, so the 6-odd GB
-# never becomes an image layer). Without this, `iso/build-iso.sh local` built an
-# ISO whose live environment came from the local image but whose INSTALLED SYSTEM
-# came from ghcr.io/svkoulu/svk-os:stable — so a local change could not be tested
-# by installing it, and the build failed outright while no :stable tag existed
-# (found 2026-08-19). The tag it is loaded under is the real registry ref, so the
-# kickstart below and the installed machine's origin are byte-identical to a
-# production build.
+# A local build has the image bind-mounted in as an archive instead (iso/build-iso.sh);
+# both branches land under the same tag, so the installed origin is identical.
 if [ -f /tmp/local-image/image.tar ]; then
-    echo "svk installer: loading the locally-built image instead of pulling ${IMAGE_REPO}:${IMAGE_TAG}"
-    loaded="$(podman load -q -i /tmp/local-image/image.tar | sed -n 's/^Loaded image: //p' | head -1)"
-    [ -n "$loaded" ] || { echo "podman load produced no image name" >&2; exit 1; }
-    podman tag "$loaded" "${IMAGE_REPO}:${IMAGE_TAG}"
+    echo "svk installer: baking the locally-built image instead of ${IMAGE_REPO}:${IMAGE_TAG}"
+    TMPDIR=/var/tmp skopeo copy \
+        "oci-archive:/tmp/local-image/image.tar" "oci:${INSTALL_IMAGE_DIR}:${IMAGE_TAG}"
 else
-    podman pull "${IMAGE_REPO}:${IMAGE_TAG}"
+    skopeo copy "docker://${IMAGE_REPO}:${IMAGE_TAG}" "oci:${INSTALL_IMAGE_DIR}:${IMAGE_TAG}"
 fi
 mv /tmp/svk-policy.json /etc/containers/policy.json
+# Read it back the way the kickstart will ask for it: a layout that only fails at
+# install time fails on a lab machine.
+skopeo inspect --raw "oci:${INSTALL_IMAGE_DIR}:${IMAGE_TAG}" >/dev/null
 
 ### Kickstarts ################################################################
 # Both kickstarts pre-satisfy every Anaconda step so nothing prompts: Finnish
 # locale + keyboard, Helsinki timezone, and full-disk btrfs with LUKS encryption
 # (TPM2 auto-unlock is enrolled at first boot — see luks-tpm-enroll in the image).
-# They install svk-os from the ISO's own containers-storage, then re-point the
+# They install svk-os from the OCI layout baked into this image, then re-point the
 # bootc origin at the signed registry ref so the machine auto-updates from ghcr
 # enforcing svk's cosign policy; disable Fedora flatpaks; rsync the offline-baked
 # flatpaks onto the target; and fix their SELinux labels. NO Secure Boot enrollment.
@@ -266,10 +261,10 @@ autopart --type=btrfs --noswap
 #    > /tmp/svk-storage.ks
 #%end
 EOF
-# Second heredoc is unquoted so ${IMAGE_REPO}:${IMAGE_TAG} expand at build time.
+# Second heredoc is unquoted so ${INSTALL_IMAGE_DIR}/${IMAGE_TAG} expand at build time.
 cat <<EOF
 
-ostreecontainer --url=${IMAGE_REPO}:${IMAGE_TAG} --transport=containers-storage --no-signature-verification
+ostreecontainer --url=${INSTALL_IMAGE_DIR}:${IMAGE_TAG} --transport=oci --no-signature-verification
 %include /usr/share/anaconda/post-scripts/svk-configure-upgrade.ks
 %include /usr/share/anaconda/post-scripts/svk-default-target.ks
 %include /usr/share/anaconda/post-scripts/svk-disable-fedora-flatpak.ks
@@ -425,7 +420,7 @@ lang fi_FI.UTF-8
 keyboard --vckeymap=fi --xlayouts=fi
 timezone Europe/Helsinki --utc
 
-ostreecontainer --url=${IMAGE_REPO}:${IMAGE_TAG} --transport=containers-storage --no-signature-verification
+ostreecontainer --url=${INSTALL_IMAGE_DIR}:${IMAGE_TAG} --transport=oci --no-signature-verification
 %include /usr/share/anaconda/post-scripts/svk-configure-upgrade.ks
 %include /usr/share/anaconda/post-scripts/svk-default-target.ks
 %include /usr/share/anaconda/post-scripts/svk-disable-fedora-flatpak.ks
