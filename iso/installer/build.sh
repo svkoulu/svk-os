@@ -60,8 +60,21 @@ DISPLAY_NAME="SVK OS${VERSION:+ (${VERSION})}"
 
 # ISO9660 volume label — what shows up as the USB drive's name in a file manager
 # once it's burned/dd'd, and what root=live:CDLABEL=${LABEL} below matches against
-# to find the right device at boot. Level-1 caps this at 32 chars (svk-os-stable-
-# <N>-<date> is 24 at N=1, room to spare).
+# to find the right device at boot. Length is fine: the spec caps it at 32 chars
+# and svk-os-stable-<N>-<date> is 24 at N=1.
+#
+# The CHARACTER SET is not: ISO 9660 d-characters are A-Z 0-9 _ only, so the
+# lowercase letters and hyphens here are out of spec and xorriso says so on every
+# build ("-volid text does not comply to ISO 9660 / ECMA 119 rules"). Kept anyway,
+# deliberately: xorriso writes the label verbatim rather than normalizing it, udev
+# derives /dev/disk/by-label from those same bytes, so CDLABEL matches and the
+# thing boots — an ISO with this label installed unattended in the end-to-end VM
+# run (tasks/…-first-end-to-end-vm-install.md, 2026-08-19). A compliant
+# SVK_OS_STABLE_1_20260819 would also be the drive name a teacher sees in Files,
+# which is the reason to leave it. If you ever change it, change it in
+# ONE place: the four ${LABEL} boot lines below read this variable, and a label
+# that does not match the volume descriptor is an ISO that drops to a dracut
+# shell instead of installing.
 LABEL="svk-os${VERSION:+-${VERSION}}"
 
 ### Live-environment tweaks ####################################################

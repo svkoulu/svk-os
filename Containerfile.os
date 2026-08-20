@@ -25,7 +25,7 @@ COPY custom /custom
 # as long as nobody looked. A pinned digest is not a stable artifact; upstream
 # prunes them. Something has to bump it, and something has to shout when a build
 # fails (tasks/todo/…-ci-failure-alerting.md). ---
-FROM quay.io/fedora-ostree-desktops/silverblue:44
+FROM quay.io/fedora-ostree-desktops/silverblue:44@sha256:1d3b94de8a776307f87b729abda3c5a2f4706093ad230051a817a1dc0e6e3be2
 
 # Image identity — makes bootc / fastfetch report svk, not Fedora.
 ARG IMAGE_NAME="svk-os"
