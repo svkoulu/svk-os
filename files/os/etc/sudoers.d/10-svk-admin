@@ -1,4 +1,11 @@
 # The local `admin` operator gets full, passwordless sudo on every fleet device.
-# admin logs in key-only (no account password), so requiring a sudo password
-# would lock it out of privilege escalation entirely — NOPASSWD is deliberate.
+# admin reaches these machines over SSH with a key only (sshd sets
+# `AuthenticationMethods publickey`), so requiring a sudo password would lock it
+# out of privilege escalation entirely — NOPASSWD is deliberate.
+#
+# The account does now have a password, set by the installer (ADMIN_PASSWORD in
+# iso/installer/build.sh), but that exists for POLKIT prompts at the GUI, where
+# admin is the only wheel member an auth_admin dialog will accept. It is not part
+# of the sudo path and must not become one: it is a shared fleet password until
+# the USB provisioning config issues per-machine credentials.
 admin ALL=(ALL) NOPASSWD: ALL

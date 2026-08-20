@@ -45,6 +45,39 @@ IMAGE_TAG="${IMAGE_REF##*:}"; [[ "$IMAGE_TAG" == "$IMAGE_REPO" ]] && IMAGE_TAG="
 # do not treat a better default as closing the issue.
 STAFF_PASSWORD="${STAFF_PASSWORD:-svk-vaihda-tama}"
 
+# Password for the `admin` operator account. Until now admin had NONE: it is
+# declared in the image via sysusers.d, and sysusers creates accounts with a
+# LOCKED password — deliberate, because admin logs in over SSH by key only
+# (AuthenticationMethods publickey) and sudo is NOPASSWD.
+#
+# That left a hole at the GUI. polkit's admin identity is `unix-group:wheel`, and
+# admin is the fleet's only wheel member, so every auth_admin prompt on a staff
+# laptop asked for a password that did not exist — unanswerable, and on
+# gnome-software's third-party-repositories dialog (two buttons, both auth_admin,
+# no dismiss) it was an unclosable modal. The dialog itself is retired in the
+# image (files/os/etc/tmpfiles.d/svk-fedora-third-party.conf); this makes the
+# general case answerable by an operator standing at the machine.
+#
+# NOT expired with `chage -d 0` the way STAFF_PASSWORD is. An expired password
+# fails PAM account management, which is precisely how polkit prompts start
+# failing again — the bug this fixes. Change it per build instead.
+#
+# INTERIM, exactly like STAFF_PASSWORD: one password across the fleet,
+# overridable per build (ADMIN_PASSWORD=... iso/build-iso.sh ...), and replaced
+# by per-machine credentials once the USB provisioning config lands
+# (tasks/todo/20260719-0110-usb-provisioning-config.md).
+ADMIN_PASSWORD="${ADMIN_PASSWORD:-svk-admin-vaihda-tama}"
+# The value is interpolated into a single-quoted shell string in the kickstart
+# below, so a literal single quote would break out of it and produce a kickstart
+# that fails mid-install — after the disk has already been wiped. Refuse at BUILD
+# time instead, where the cost is re-running one command.
+case "$ADMIN_PASSWORD" in
+    *\'*|*$'\n'*)
+        echo "ERROR: ADMIN_PASSWORD must not contain a single quote or newline." >&2
+        exit 1
+        ;;
+esac
+
 # BASE_IMAGE's org.opencontainers.image.version (e.g. stable-1-20260719), read by
 # iso/build-iso.sh before this build; blank for a local image with no version
 # label. Same "SVK OS (<version>)" format as os-release PRETTY_NAME (see
@@ -287,6 +320,7 @@ cat <<EOF
 ostreecontainer --url=${INSTALL_IMAGE_DIR}:${IMAGE_TAG} --transport=oci --no-signature-verification
 %include /usr/share/anaconda/post-scripts/svk-configure-upgrade.ks
 %include /usr/share/anaconda/post-scripts/svk-default-target.ks
+%include /usr/share/anaconda/post-scripts/svk-admin-password.ks
 %include /usr/share/anaconda/post-scripts/svk-disable-fedora-flatpak.ks
 %include /usr/share/anaconda/post-scripts/svk-install-flatpaks.ks
 %include /usr/share/anaconda/post-scripts/svk-flatpak-selinux.ks
@@ -443,6 +477,7 @@ timezone Europe/Helsinki --utc
 ostreecontainer --url=${INSTALL_IMAGE_DIR}:${IMAGE_TAG} --transport=oci --no-signature-verification
 %include /usr/share/anaconda/post-scripts/svk-configure-upgrade.ks
 %include /usr/share/anaconda/post-scripts/svk-default-target.ks
+%include /usr/share/anaconda/post-scripts/svk-admin-password.ks
 %include /usr/share/anaconda/post-scripts/svk-disable-fedora-flatpak.ks
 %include /usr/share/anaconda/post-scripts/svk-install-flatpaks.ks
 %include /usr/share/anaconda/post-scripts/svk-flatpak-selinux.ks
@@ -454,6 +489,42 @@ EOF
 tee /usr/share/anaconda/post-scripts/svk-configure-upgrade.ks <<EOF
 %post --erroronfail
 bootc switch --mutate-in-place --enforce-container-sigpolicy --transport registry ${IMAGE_REPO}:${IMAGE_TAG}
+%end
+EOF
+
+# Give the `admin` operator a password.
+#
+# WHY THIS IS AN INSTALL-TIME STEP: admin is declared in the image's sysusers.d
+# and normally materializes at FIRST BOOT with a locked password. Nothing in the
+# image can set a password on it — a password hash is machine state, not image
+# content, and baking one into the image would put it in git and make it
+# identical on every machine forever. The installer is the first place that can
+# write one.
+#
+# `systemd-sysusers <file>` first, so this works whether or not the account has
+# been created yet at this point in the install; it is idempotent and a no-op
+# once admin exists. It reads the image's own declaration, so admin still lands
+# on uid/gid 1000 — the kickstart's own accounts (staff 1001, opilas 1002) were
+# created before %post runs, so 1000 is free, and it also creates the `svk-staff`
+# group at gid 481.
+#
+# NO `chage -d 0` here, unlike the staff account. An expired password fails PAM
+# account management, and polkit's admin auth goes through PAM — an expired admin
+# password would put the fleet right back to unanswerable authentication dialogs.
+# The way to rotate this is a new ISO build with ADMIN_PASSWORD set, or
+# `passwd admin` over SSH.
+#
+# Unquoted heredoc: ${ADMIN_PASSWORD} is substituted at ISO-BUILD time, exactly
+# like the staff kickstart's --password.
+#
+# SSH is unaffected: sshd_config.d/10-svk-hardening.conf sets
+# `AuthenticationMethods publickey` and `PasswordAuthentication no`, so giving
+# admin a password does not open a password login path over the network. It is
+# for the console and for polkit prompts at the GUI.
+tee /usr/share/anaconda/post-scripts/svk-admin-password.ks <<EOF
+%post --erroronfail
+systemd-sysusers /usr/lib/sysusers.d/svk-admin.conf
+echo 'admin:${ADMIN_PASSWORD}' | chpasswd
 %end
 EOF
 

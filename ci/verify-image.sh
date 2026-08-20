@@ -261,6 +261,19 @@ check "admin is hidden from the greeter" run grep -q "SystemAccount=true" /etc/t
 check "admin has an authorized key" run test -s /etc/ssh/authorized_keys.d/admin
 check "sshd is key-only" run grep -qi "^PasswordAuthentication no" /etc/ssh/sshd_config.d/10-svk-hardening.conf
 
+# GNOME Software's third-party-repositories dialog has two buttons and no
+# dismiss, and BOTH of them are polkit auth_admin actions. `staff` is not in
+# wheel, so on a staff laptop it was an unclosable modal asking for a password
+# that (until the installer started setting one) did not exist. The state file
+# below is what retires the question; without it the dialog is back on every
+# freshly installed staff machine and nothing else in the build would notice.
+check "fedora-third-party question is pre-answered" run bash -c '
+    systemd-tmpfiles --create --prefix=/var/lib/fedora-third-party >/dev/null 2>&1
+    fedora-third-party query | grep -q "no selection has been made" && {
+        echo "gnome-software will still show the unclosable third-party dialog"; exit 1; }
+    exit 0
+'
+
 # Binaries our own scripts call. These come from the base image, not from us, so
 # a base bump can remove one and nothing fails until the script runs on a machine
 # — where every one of these scripts swallows its own errors by design.

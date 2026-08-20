@@ -239,6 +239,19 @@ password is a real hole rather than a cosmetic one. The proper fix is the per-si
 password entirely rather than substituting a better one — **do not treat this as
 closed.**
 
+The `admin` operator now gets a **password too**, set by the kickstart's `%post`
+(`svk-admin-password.ks`), overridable with `ADMIN_PASSWORD=… iso/build-iso.sh …`.
+It had none before: `admin` is declared via `sysusers.d` in the image and sysusers
+creates accounts **locked**, which is fine for SSH (key-only) and for sudo
+(`NOPASSWD`) but not for the GUI — polkit's admin identity is `unix-group:wheel`
+and `admin` is the only member, so every `auth_admin` prompt on a staff laptop
+asked for a password that did not exist. Unlike the staff password it is
+deliberately **not** expired with `chage -d 0`: an expired password fails PAM
+account management, which is exactly how polkit prompts start failing again.
+Rotate it with a new ISO build or `passwd admin` over SSH. Same interim status as
+the staff password — the USB provisioning config replaces it with per-machine
+credentials.
+
 **Disk encryption (LUKS + TPM2).** There is **no secret in the ISO.** The LUKS
 passphrase is **generated per install**, in the kickstart's `%pre` (see the
 `common_ks` block in `iso/installer/build.sh`): each machine gets a unique,

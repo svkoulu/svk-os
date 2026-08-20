@@ -116,12 +116,18 @@ ISO_GIT_SHA="$(git -C "$REPO_ROOT" rev-parse HEAD 2>/dev/null || true)"
 # STAFF_PASSWORD: interim placeholder for the baked `staff` login, overridable per
 # build (the kickstart expires it at first login either way). See the note in
 # iso/installer/build.sh; the real fix is the USB provisioning config.
+#
+# ADMIN_PASSWORD: same deal for the `admin` operator. sysusers creates admin with
+# a locked password, so before this every polkit admin prompt at the GUI was
+# unanswerable; the kickstart's %post sets one. Deliberately NOT expired — an
+# expired password fails PAM account management and breaks polkit all over again.
 INSTALLER_IMAGE="localhost/svk-os-installer:latest"
 podman build \
     --cap-add sys_admin --security-opt label=disable \
     --build-arg BASE_IMAGE="$BASE_IMAGE" \
     --build-arg IMAGE_REF="$IMAGE_REF" \
     --build-arg STAFF_PASSWORD="${STAFF_PASSWORD:-}" \
+    --build-arg ADMIN_PASSWORD="${ADMIN_PASSWORD:-}" \
     --build-arg VERSION="$IMG_VERSION" \
     --build-arg ISO_GIT_SHA="$ISO_GIT_SHA" \
     -t "$INSTALLER_IMAGE" \

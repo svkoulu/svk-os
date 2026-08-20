@@ -19,6 +19,12 @@ ARG IMAGE_REF
 # back to the default in build.sh. The kickstart expires it at first login either
 # way. Removed entirely once the USB provisioning config generates real accounts.
 ARG STAFF_PASSWORD=""
+# Interim placeholder password for the `admin` operator, set by the kickstart's
+# %post (sysusers creates admin with a LOCKED password, which left every polkit
+# auth_admin prompt at the GUI unanswerable). Blank falls back to the default in
+# build.sh. Not expired at first login — see the note in build.sh. Removed
+# entirely once the USB provisioning config issues per-machine credentials.
+ARG ADMIN_PASSWORD=""
 # BASE_IMAGE's own org.opencontainers.image.version (e.g. stable-1-20260719),
 # read by iso/build-iso.sh before this build. Blank for a local image with no
 # version label. Used only to name the GRUB boot-menu entry.
@@ -42,6 +48,7 @@ COPY iso/installer/build.sh /tmp/build.sh
 RUN --mount=type=cache,dst=/var/cache/libdnf5 \
     --mount=type=bind,source=iso/.local-image,target=/tmp/local-image \
     IMAGE_REF="${IMAGE_REF}" VERSION="${VERSION}" \
-    STAFF_PASSWORD="${STAFF_PASSWORD}" ISO_GIT_SHA="${ISO_GIT_SHA}" \
+    STAFF_PASSWORD="${STAFF_PASSWORD}" ADMIN_PASSWORD="${ADMIN_PASSWORD}" \
+    ISO_GIT_SHA="${ISO_GIT_SHA}" \
     bash /tmp/build.sh \
     && rm -rf /tmp/build.sh /tmp/flatpaks
